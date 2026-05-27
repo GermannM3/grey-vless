@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Grey vless
+Comment=VPN-клиент: вставьте подписку и подключитесь
+Exec=grey-vless
+Icon=grey-vless
+Terminal=false
+Categories=Network;
+StartupWMClass=com.grey.vless

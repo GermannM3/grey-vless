@@ -1,0 +1,154 @@
+name: Build Grey vless (all platforms)
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download sing-box cores
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq unzip curl
+          chmod +x scripts/download-cores.sh
+          ./scripts/download-cores.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sing-box-cores
+          path: grey_vless/assets/bin/
+
+  linux:
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: sing-box-cores
+          path: grey_vless/assets/bin
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libstdc++-12-dev
+          cp data/grey-vless.png grey_vless/assets/icons/grey-vless.png
+          cd grey_vless
+          flutter create . --org com.grey --project-name grey_vless --platforms=linux
+          flutter pub get
+          chmod +x ../scripts/patch-android.sh || true
+          flutter build linux --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: grey-vless-linux-x64
+          path: grey_vless/build/linux/x64/release/bundle/
+
+  windows:
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: sing-box-cores
+          path: grey_vless/assets/bin
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev
+          cp data/grey-vless.png grey_vless/assets/icons/grey-vless.png
+          cd grey_vless
+          flutter create . --org com.grey --project-name grey_vless --platforms=windows
+          flutter pub get
+          flutter build windows --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: grey-vless-windows-x64
+          path: grey_vless/build/windows/x64/runner/Release/
+
+  macos:
+    needs: prepare
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: sing-box-cores
+          path: grey_vless/assets/bin
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - run: |
+          cp data/grey-vless.png grey_vless/assets/icons/grey-vless.png
+          cd grey_vless
+          flutter create . --org com.grey --project-name grey_vless --platforms=macos
+          flutter pub get
+          flutter build macos --release
+          mkdir -p dist
+          cp -R build/macos/Build/Products/Release/grey_vless.app dist/
+          hdiutil create -volname "Grey vless" -srcfolder dist/grey_vless.app -ov -format UDZO dist/Grey-vless-macos.dmg
+      - uses: actions/upload-artifact@v4
+        with:
+          name: grey-vless-macos
+          path: grey_vless/dist/
+
+  android:
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: sing-box-cores
+          path: grey_vless/assets/bin
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - run: |
+          cp data/grey-vless.png grey_vless/assets/icons/grey-vless.png
+          cd grey_vless
+          flutter create . --org com.grey --project-name grey_vless --platforms=android
+          flutter pub get
+          chmod +x ../scripts/patch-android.sh && ../scripts/patch-android.sh || true
+          flutter build apk --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: grey-vless-android-apk
+          path: grey_vless/build/app/outputs/flutter-apk/app-release.apk
+
+  appimage:
+    needs: linux
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: grey-vless-linux-x64
+          path: bundle
+      - run: |
+          sudo apt-get update && sudo apt-get install -y fuse libfuse2
+          wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage -O appimagetool
+          chmod +x appimagetool
+          mkdir -p AppDir/usr/bin AppDir/usr/share/applications
+          cp -r bundle/* AppDir/usr/bin/
+          cat > AppDir/AppRun <<'EOF'
+          #!/bin/bash
+          HERE="$(dirname "$(readlink -f "$0")")"
+          exec "$HERE/usr/bin/grey_vless" "$@"
+          EOF
+          chmod +x AppDir/AppRun
+          cp grey_vless/assets/icons/grey-vless.png AppDir/grey-vless.png 2>/dev/null || true
+          ARCH=x86_64 ./appimagetool AppDir Grey-vless-flutter-x86_64.AppImage
+      - uses: actions/upload-artifact@v4
+        with:
+          name: grey-vless-appimage
+          path: Grey-vless-flutter-x86_64.AppImage

@@ -1,0 +1,5 @@
+APP_NAME = "Grey vless"
+APP_ID = "com.grey.vless"
+PACKAGE_NAME = "grey-vless"
+INSTALL_DIR = "/opt/grey-vless"
+USER_AGENT = "GreyVless/1.0"
