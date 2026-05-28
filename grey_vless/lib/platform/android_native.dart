@@ -13,10 +13,15 @@ class AndroidNative {
     return ok ?? false;
   }
 
-  static Future<void> startVpn({required String configPath, required String binaryPath}) async {
+  static Future<void> startVpn({
+    required String configPath,
+    required String binaryPath,
+    int proxyPort = 7890,
+  }) async {
     await _channel.invokeMethod<void>('startVpn', {
       'configPath': configPath,
       'binaryPath': binaryPath,
+      'proxyPort': proxyPort,
     });
   }
 

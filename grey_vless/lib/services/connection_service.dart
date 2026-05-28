@@ -17,10 +17,12 @@ class ConnectionService {
 
   bool get isConnected => _runner.isRunning;
 
+  /// На Android без TUN sing-box слушает только локальный прокси — это не VPN.
+  bool get isProxyOnly => Platform.isAndroid && isConnected && !tunMode;
+
+  bool get isFullVpn => isConnected && tunMode;
+
   Future<void> connect(VpnServer server) async {
-    if (Platform.isAndroid && !tunMode) {
-      throw Exception('На Android включите TUN (VPN на телефоне), иначе трафик не пойдёт.');
-    }
     await disconnect();
     final config = SingboxConfigBuilder.build(server, tunMode: tunMode);
     await _runner.start(config, tunMode: tunMode);

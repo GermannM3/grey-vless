@@ -20,6 +20,8 @@ grey_vless/windows/flutter/ephemeral/
 grey_vless/macos/Flutter/ephemeral/
 grey_vless/android/.gradle/
 grey_vless/android/local.properties
+grey_vless/android/app/src/main/jniLibs/**/*.so
+grey_vless/android/app/src/main/cpp/hev-include/
 __pycache__/
 *.pyc
 .DS_Store

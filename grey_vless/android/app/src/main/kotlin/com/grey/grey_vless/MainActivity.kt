@@ -38,6 +38,7 @@ class MainActivity : FlutterActivity() {
                     "startVpn" -> {
                         val configPath = call.argument<String>("configPath")
                         val binaryPath = call.argument<String>("binaryPath")
+                        val proxyPort = call.argument<Int>("proxyPort") ?: 7890
                         if (configPath.isNullOrBlank() || binaryPath.isNullOrBlank()) {
                             result.error("invalid_args", "configPath/binaryPath required", null)
                             return@setMethodCallHandler
@@ -46,6 +47,7 @@ class MainActivity : FlutterActivity() {
                             action = GreyVpnService.ACTION_START
                             putExtra(GreyVpnService.EXTRA_CONFIG, configPath)
                             putExtra(GreyVpnService.EXTRA_BINARY, binaryPath)
+                            putExtra(GreyVpnService.EXTRA_PROXY_PORT, proxyPort)
                         }
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                             startForegroundService(intent)

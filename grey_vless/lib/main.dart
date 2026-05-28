@@ -25,18 +25,9 @@ Future<void> main() async {
   }
 
   final connection = ConnectionService();
-  if (Platform.isAndroid) {
-    connection.tunMode = true;
-  }
   runApp(
     ChangeNotifierProvider(
-      create: (_) {
-        final state = AppState(connection);
-        if (Platform.isAndroid) {
-          state.tunMode = true;
-        }
-        return state;
-      },
+      create: (_) => AppState(connection),
       child: const GreyVlessApp(),
     ),
   );

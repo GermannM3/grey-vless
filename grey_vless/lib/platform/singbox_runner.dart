@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import '../services/singbox_config.dart';
 import 'android_native.dart';
 
 class SingboxRunner {
@@ -79,9 +80,13 @@ class SingboxRunner {
     await File(_configPath!).writeAsString(const JsonEncoder.withIndent('  ').convert(config));
 
     if (Platform.isAndroid && tunMode) {
-      await AndroidNative.startVpn(configPath: _configPath!, binaryPath: binary);
+      await AndroidNative.startVpn(
+        configPath: _configPath!,
+        binaryPath: binary,
+        proxyPort: SingboxConfigBuilder.localPort,
+      );
       _androidVpn = true;
-      await Future.delayed(const Duration(milliseconds: 1200));
+      await Future.delayed(const Duration(milliseconds: 1500));
       return;
     }
 

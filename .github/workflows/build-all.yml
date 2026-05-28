@@ -108,6 +108,13 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+      - uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r27
+      - run: |
+          chmod +x scripts/build-hev-android.sh
+          export ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME"
+          ./scripts/build-hev-android.sh
       - uses: subosito/flutter-action@v2
         with:
           channel: stable

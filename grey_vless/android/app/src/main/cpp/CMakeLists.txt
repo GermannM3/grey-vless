@@ -1,0 +1,16 @@
+cmake_minimum_required(VERSION 3.10)
+project(grey_hev_bridge)
+
+set(HEV_LIB "${CMAKE_CURRENT_SOURCE_DIR}/../jniLibs/${ANDROID_ABI}/libhev-socks5-tunnel.so")
+
+if(EXISTS "${HEV_LIB}")
+    add_library(hev_socks5 SHARED IMPORTED)
+    set_target_properties(hev_socks5 PROPERTIES IMPORTED_LOCATION "${HEV_LIB}")
+    add_library(grey_hev_bridge SHARED hev_bridge.c)
+    target_include_directories(grey_hev_bridge PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/hev-include")
+    target_link_libraries(grey_hev_bridge hev_socks5 log)
+else()
+    message(WARNING "libhev-socks5-tunnel.so not found for ${ANDROID_ABI} — VPN TUN will not work")
+    add_library(grey_hev_bridge SHARED hev_bridge_stub.c)
+    target_link_libraries(grey_hev_bridge log)
+endif()

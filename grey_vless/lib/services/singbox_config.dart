@@ -32,7 +32,8 @@ class SingboxConfigBuilder {
   }
 
   static Map<String, dynamic> build(VpnServer server, {bool tunMode = false}) {
-    final inbounds = tunMode
+    final useTunInbound = tunMode && !Platform.isAndroid;
+    final inbounds = useTunInbound
         ? [_tunInbound()]
         : [
             {

@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../models/server.dart';
+import '../services/connection_service.dart';
 import '../services/ping_service.dart';
 import '../services/subscription.dart';
 import '../state/app_state.dart';
@@ -67,14 +68,43 @@ class _HomeScreenState extends State<HomeScreen> {
     }
     await state.connection.connect(server);
     state.refresh();
-    if (mounted && Platform.isAndroid) {
+    if (!mounted) return;
+    final conn = state.connection;
+    if (conn.isFullVpn) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('VPN запущен. В строке состояния должен появиться значок VPN.'),
+          content: Text('VPN включён — в статус-баре должен быть значок VPN.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } else if (conn.isProxyOnly) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Запущен только локальный прокси. Для интернета на телефоне включите TUN.',
+          ),
           behavior: SnackBarBehavior.floating,
         ),
       );
     }
+  }
+
+  String _statusLine(ConnectionService conn) {
+    if (!conn.isConnected) return 'Не подключено';
+    final name = conn.connectedServer?.name ?? '';
+    if (conn.isProxyOnly) {
+      return 'Прокси (не VPN): $name';
+    }
+    if (conn.isFullVpn) {
+      return 'VPN: $name';
+    }
+    return 'Подключено: $name';
+  }
+
+  Color _statusColor(ConnectionService conn) {
+    if (!conn.isConnected) return AppTheme.statusOff;
+    if (conn.isProxyOnly) return const Color(0xFFB45309);
+    return AppTheme.statusOk;
   }
 
   @override
@@ -145,7 +175,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 runSpacing: 4,
                 children: [
                   FilterChip(
-                    label: Text(Platform.isAndroid ? 'TUN (VPN на телефоне)' : 'TUN (полный VPN)'),
+                    label: Text(Platform.isAndroid ? 'TUN — полный VPN' : 'TUN (полный VPN)'),
                     selected: state.tunMode,
                     onSelected: (v) {
                       state.tunMode = v;
@@ -167,17 +197,17 @@ class _HomeScreenState extends State<HomeScreen> {
                 Padding(
                   padding: const EdgeInsets.only(top: 4),
                   child: Text(
-                    'На Android для работы интернета включите TUN и подтвердите разрешение VPN.',
+                    state.tunMode
+                        ? 'TUN: весь трафик через VPN (подтвердите разрешение при подключении).'
+                        : 'Без TUN: только проверка серверов — интернет телефона через VPN не идёт.',
                     style: theme.textTheme.bodySmall?.copyWith(color: AppTheme.hint, fontSize: 12),
                   ),
                 ),
               const SizedBox(height: 10),
               Text(
-                conn.isConnected
-                    ? 'Подключено: ${conn.connectedServer?.name ?? ""}'
-                    : 'Не подключено',
+                _statusLine(conn),
                 style: TextStyle(
-                  color: conn.isConnected ? AppTheme.statusOk : AppTheme.statusOff,
+                  color: _statusColor(conn),
                   fontWeight: FontWeight.w500,
                 ),
               ),
