@@ -34,12 +34,11 @@ jobs:
           channel: stable
       - run: |
           sudo apt-get update
-          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libstdc++-12-dev
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libstdc++-12-dev libayatana-appindicator3-dev
           cp data/grey-vless.png grey_vless/assets/icons/grey-vless.png
           cd grey_vless
           flutter create . --org com.grey --project-name grey_vless --platforms=linux
           flutter pub get
-          chmod +x ../scripts/patch-android.sh || true
           flutter build linux --release
       - uses: actions/upload-artifact@v4
         with:
@@ -48,7 +47,7 @@ jobs:
 
   windows:
     needs: prepare
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -58,11 +57,10 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
-      - run: |
-          sudo apt-get update
-          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev
-          cp data/grey-vless.png grey_vless/assets/icons/grey-vless.png
-          cd grey_vless
+      - shell: pwsh
+        run: |
+          Copy-Item data/grey-vless.png grey_vless/assets/icons/grey-vless.png -Force
+          Set-Location grey_vless
           flutter create . --org com.grey --project-name grey_vless --platforms=windows
           flutter pub get
           flutter build windows --release
@@ -118,7 +116,6 @@ jobs:
           cd grey_vless
           flutter create . --org com.grey --project-name grey_vless --platforms=android
           flutter pub get
-          chmod +x ../scripts/patch-android.sh && ../scripts/patch-android.sh || true
           flutter build apk --release
       - uses: actions/upload-artifact@v4
         with:
