@@ -8,6 +8,7 @@ import '../models/server.dart';
 import '../services/ping_service.dart';
 import '../services/subscription.dart';
 import '../state/app_state.dart';
+import 'app_theme.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -19,20 +20,6 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   final _controller = TextEditingController();
   bool _busy = false;
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!Platform.isAndroid) return;
-      final state = context.read<AppState>();
-      if (state.tunMode) {
-        state.tunMode = false;
-        state.connection.tunMode = false;
-        state.refresh();
-      }
-    });
-  }
 
   @override
   void dispose() {
@@ -47,7 +34,11 @@ class _HomeScreenState extends State<HomeScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.toString()), backgroundColor: Colors.red.shade800),
+          SnackBar(
+            content: Text(_shortError(e)),
+            backgroundColor: Colors.red.shade700,
+            behavior: SnackBarBehavior.floating,
+          ),
         );
       }
     } finally {
@@ -55,162 +46,221 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  String _shortError(Object e) {
+    final s = e.toString();
+    if (s.startsWith('Exception: ')) return s.substring(11);
+    return s;
+  }
+
+  VpnServer? _selectedServer(AppState state) {
+    if (state.selectedIndex != null && state.selectedIndex! < state.servers.length) {
+      return state.servers[state.selectedIndex!];
+    }
+    if (state.servers.isNotEmpty) return state.servers.first;
+    return null;
+  }
+
+  Future<void> _connectSelected(AppState state) async {
+    final server = _selectedServer(state);
+    if (server == null) {
+      throw Exception('Выберите сервер в списке');
+    }
+    await state.connection.connect(server);
+    state.refresh();
+    if (mounted && Platform.isAndroid) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('VPN запущен. В строке состояния должен появиться значок VPN.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
     final conn = state.connection;
+    final theme = Theme.of(context);
+    final canConnect = !_busy && state.servers.isNotEmpty && !conn.isConnected;
+    final canDisconnect = !_busy && conn.isConnected;
 
     return Scaffold(
-      backgroundColor: const Color(0xFF1A1D24),
-      appBar: AppBar(
-        backgroundColor: const Color(0xFF252A33),
-        title: const Text('Grey vless', style: TextStyle(fontWeight: FontWeight.w600)),
-        centerTitle: false,
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            TextField(
-              controller: _controller,
-              style: const TextStyle(color: Colors.white),
-              decoration: InputDecoration(
-                hintText: 'https://... или vless://...',
-                hintStyle: TextStyle(color: Colors.grey.shade500),
-                filled: true,
-                fillColor: const Color(0xFF2E3440),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+      appBar: AppBar(title: const Text('Grey vless')),
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'Ссылка на подписку или список серверов (vless://, vmess://, trojan://, ss://)',
+                style: theme.textTheme.bodySmall?.copyWith(color: AppTheme.hint),
               ),
-              maxLines: 2,
-            ),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                OutlinedButton(
-                  onPressed: _busy
-                      ? null
-                      : () async {
-                          final data = await Clipboard.getData('text/plain');
-                          if (data?.text?.trim().isNotEmpty == true) {
-                            _controller.text = data!.text!.trim();
-                          }
-                        },
-                  child: const Text('Вставить'),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _controller,
+                decoration: const InputDecoration(
+                  hintText: 'https://... или vless://...',
                 ),
-                const SizedBox(width: 8),
-                FilledButton(
-                  onPressed: _busy
-                      ? null
-                      : () => _run(() async {
-                            final servers = await SubscriptionService.parseSource(_controller.text);
-                            state.setServers(servers);
-                            if (state.autoConnect) {
-                              await conn.connectFastest(servers);
-                              state.refresh();
+                maxLines: 2,
+              ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  OutlinedButton(
+                    onPressed: _busy
+                        ? null
+                        : () async {
+                            final data = await Clipboard.getData('text/plain');
+                            if (data?.text?.trim().isNotEmpty == true) {
+                              _controller.text = data!.text!.trim();
                             }
-                          }),
-                  child: const Text('Загрузить'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 12,
-              children: [
-                FilterChip(
-                  label: const Text('TUN (полный VPN)'),
-                  selected: state.tunMode,
-                  onSelected: (v) {
-                    state.tunMode = v;
-                    conn.tunMode = v;
-                    state.refresh();
-                  },
-                ),
-                FilterChip(
-                  label: const Text('Автоподключение'),
-                  selected: state.autoConnect,
-                  onSelected: (v) {
-                    state.autoConnect = v;
-                    state.refresh();
-                  },
-                ),
-              ],
-            ),
-            if (Platform.isAndroid)
-              Padding(
-                padding: const EdgeInsets.only(top: 6),
-                child: Text(
-                  'На Android: сначала без TUN. Если подписка по URL не грузится — вставьте vless:// ссылки вручную.',
-                  style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
-                ),
-              ),
-            const SizedBox(height: 8),
-            Text(
-              conn.isConnected
-                  ? 'Подключено: ${conn.connectedServer?.name ?? ""}'
-                  : 'Не подключено',
-              style: TextStyle(color: conn.isConnected ? Colors.greenAccent : Colors.grey.shade400),
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                OutlinedButton(
-                  onPressed: _busy || state.servers.isEmpty
-                      ? null
-                      : () => _run(() async {
-                            await PingService.pingAll(state.servers);
-                            state.refresh();
-                          }),
-                  child: const Text('Пинг'),
-                ),
-                const SizedBox(width: 8),
-                OutlinedButton(
-                  onPressed: _busy || state.servers.isEmpty
-                      ? null
-                      : () => _run(() async {
-                            await conn.connectFastest(state.servers);
-                            state.refresh();
-                          }),
-                  child: const Text('Самый быстрый'),
-                ),
-                const Spacer(),
-                if (conn.isConnected)
+                          },
+                    child: const Text('Вставить'),
+                  ),
                   FilledButton(
-                    style: FilledButton.styleFrom(backgroundColor: Colors.red.shade800),
                     onPressed: _busy
                         ? null
                         : () => _run(() async {
-                              await conn.disconnect();
+                              final servers = await SubscriptionService.parseSource(_controller.text);
+                              state.setServers(servers);
+                              if (state.servers.isNotEmpty) {
+                                state.selectedIndex = 0;
+                              }
+                              if (state.autoConnect) {
+                                await conn.connectFastest(servers);
+                                state.refresh();
+                              }
+                            }),
+                    child: const Text('Загрузить'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 4,
+                children: [
+                  FilterChip(
+                    label: Text(Platform.isAndroid ? 'TUN (VPN на телефоне)' : 'TUN (полный VPN)'),
+                    selected: state.tunMode,
+                    onSelected: (v) {
+                      state.tunMode = v;
+                      conn.tunMode = v;
+                      state.refresh();
+                    },
+                  ),
+                  FilterChip(
+                    label: const Text('Автоподключение'),
+                    selected: state.autoConnect,
+                    onSelected: (v) {
+                      state.autoConnect = v;
+                      state.refresh();
+                    },
+                  ),
+                ],
+              ),
+              if (Platform.isAndroid)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text(
+                    'На Android для работы интернета включите TUN и подтвердите разрешение VPN.',
+                    style: theme.textTheme.bodySmall?.copyWith(color: AppTheme.hint, fontSize: 12),
+                  ),
+                ),
+              const SizedBox(height: 10),
+              Text(
+                conn.isConnected
+                    ? 'Подключено: ${conn.connectedServer?.name ?? ""}'
+                    : 'Не подключено',
+                style: TextStyle(
+                  color: conn.isConnected ? AppTheme.statusOk : AppTheme.statusOff,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  OutlinedButton(
+                    onPressed: _busy || state.servers.isEmpty
+                        ? null
+                        : () => _run(() async {
+                              await PingService.pingAll(state.servers);
                               state.refresh();
                             }),
+                    child: const Text('Пинг'),
+                  ),
+                  OutlinedButton(
+                    onPressed: _busy || state.servers.isEmpty
+                        ? null
+                        : () => _run(() async {
+                              await conn.connectFastest(state.servers);
+                              state.refresh();
+                            }),
+                    child: const Text('Самый быстрый'),
+                  ),
+                  FilledButton(
+                    onPressed: canConnect ? () => _run(() => _connectSelected(state)) : null,
+                    child: const Text('Подключить'),
+                  ),
+                  FilledButton(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: Colors.red.shade700,
+                      foregroundColor: Colors.white,
+                    ),
+                    onPressed: canDisconnect
+                        ? () => _run(() async {
+                              await conn.disconnect();
+                              state.refresh();
+                            })
+                        : null,
                     child: const Text('Отключить'),
                   ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Expanded(
-              child: state.servers.isEmpty
-                  ? Center(child: Text('Загрузите подписку', style: TextStyle(color: Colors.grey.shade500)))
-                  : ListView.builder(
-                      itemCount: state.servers.length,
-                      itemBuilder: (context, index) {
-                        final server = state.servers[index];
-                        final selected = conn.connectedServer == server;
-                        return _ServerTile(
-                          server: server,
-                          selected: selected,
-                          onConnect: _busy
-                              ? null
-                              : () => _run(() async {
-                                    await conn.connect(server);
+                ],
+              ),
+              const SizedBox(height: 10),
+              Expanded(
+                child: state.servers.isEmpty
+                    ? Center(
+                        child: Text(
+                          'Загрузите подписку',
+                          style: theme.textTheme.bodyLarge?.copyWith(color: AppTheme.hint),
+                        ),
+                      )
+                    : ListView.builder(
+                        itemCount: state.servers.length,
+                        itemBuilder: (context, index) {
+                          final server = state.servers[index];
+                          final selected = state.selectedIndex == index;
+                          final connected = conn.connectedServer == server;
+                          return _ServerTile(
+                            server: server,
+                            selected: selected,
+                            connected: connected,
+                            onTap: _busy
+                                ? null
+                                : () {
+                                    state.selectedIndex = index;
                                     state.refresh();
-                                  }),
-                        );
-                      },
-                    ),
-            ),
-          ],
+                                  },
+                            onConnect: _busy
+                                ? null
+                                : () => _run(() async {
+                                      state.selectedIndex = index;
+                                      await conn.connect(server);
+                                      state.refresh();
+                                    }),
+                          );
+                        },
+                      ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -218,28 +268,48 @@ class _HomeScreenState extends State<HomeScreen> {
 }
 
 class _ServerTile extends StatelessWidget {
-  const _ServerTile({required this.server, required this.selected, this.onConnect});
+  const _ServerTile({
+    required this.server,
+    required this.selected,
+    required this.connected,
+    this.onTap,
+    this.onConnect,
+  });
 
   final VpnServer server;
   final bool selected;
+  final bool connected;
+  final VoidCallback? onTap;
   final VoidCallback? onConnect;
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return Card(
-      color: selected ? const Color(0xFF3A4A5C) : const Color(0xFF2A303A),
       margin: const EdgeInsets.only(bottom: 8),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(10),
+        side: BorderSide(
+          color: connected
+              ? AppTheme.statusOk
+              : selected
+                  ? theme.colorScheme.primary
+                  : Colors.transparent,
+          width: connected || selected ? 1.5 : 0,
+        ),
+      ),
       child: ListTile(
-        title: Text(server.name, style: const TextStyle(color: Colors.white)),
+        onTap: onTap,
+        title: Text(server.name),
         subtitle: Text(
           '${server.address} · ${server.protocol.toUpperCase()} · ${server.pingMs != null ? "${server.pingMs} ms" : "—"}',
-          style: TextStyle(color: Colors.grey.shade400, fontSize: 12),
+          style: theme.textTheme.bodySmall,
         ),
-        trailing: onConnect == null
-            ? null
-            : IconButton(
-                icon: Icon(selected ? Icons.link : Icons.link_off, color: Colors.blueAccent),
+        trailing: connected
+            ? Icon(Icons.check_circle, color: AppTheme.statusOk)
+            : TextButton(
                 onPressed: onConnect,
+                child: const Text('Подключить'),
               ),
       ),
     );

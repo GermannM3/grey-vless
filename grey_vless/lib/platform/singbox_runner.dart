@@ -10,8 +10,9 @@ import 'android_native.dart';
 class SingboxRunner {
   Process? _process;
   String? _configPath;
+  bool _androidVpn = false;
 
-  bool get isRunning => _process != null;
+  bool get isRunning => _process != null || _androidVpn;
 
   Future<void> _makeExecutable(String path) async {
     if (Platform.isAndroid) {
@@ -68,7 +69,7 @@ class SingboxRunner {
     if (Platform.isAndroid && tunMode) {
       final vpnReady = await AndroidNative.prepareVpn();
       if (!vpnReady) {
-        throw Exception('Нужно разрешение VPN. Подтвердите запрос системы и попробуйте снова.');
+        throw Exception('Нужно разрешение VPN. Подтвердите запрос системы и нажмите «Подключить» снова.');
       }
     }
 
@@ -76,6 +77,13 @@ class SingboxRunner {
     final tempDir = await getTemporaryDirectory();
     _configPath = p.join(tempDir.path, 'grey-vless-${DateTime.now().millisecondsSinceEpoch}.json');
     await File(_configPath!).writeAsString(const JsonEncoder.withIndent('  ').convert(config));
+
+    if (Platform.isAndroid && tunMode) {
+      await AndroidNative.startVpn(configPath: _configPath!, binaryPath: binary);
+      _androidVpn = true;
+      await Future.delayed(const Duration(milliseconds: 1200));
+      return;
+    }
 
     try {
       _process = await Process.start(
@@ -87,7 +95,7 @@ class SingboxRunner {
     } on ProcessException catch (e) {
       throw Exception(
         'Не удалось запустить sing-box (${e.message}). '
-        'На Android отключите TUN и попробуйте снова, либо переустановите APK.',
+        'На Android включите TUN (VPN) и подтвердите разрешение.',
       );
     }
 
@@ -103,6 +111,11 @@ class SingboxRunner {
   }
 
   Future<void> stop() async {
+    if (_androidVpn) {
+      await AndroidNative.stopVpn();
+      _androidVpn = false;
+    }
+
     final proc = _process;
     _process = null;
     if (proc != null) {

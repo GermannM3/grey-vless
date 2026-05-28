@@ -8,6 +8,7 @@ class AppState extends ChangeNotifier {
 
   final ConnectionService connection;
   List<VpnServer> servers = [];
+  int? selectedIndex;
   bool tunMode = false;
   bool autoConnect = false;
 

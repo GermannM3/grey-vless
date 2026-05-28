@@ -1,22 +1,39 @@
+import 'dart:io';
+
 import '../models/server.dart';
 
 class SingboxConfigBuilder {
   static const localPort = 7890;
 
+  static Map<String, dynamic> _tunInbound() {
+    if (Platform.isAndroid) {
+      return {
+        'type': 'tun',
+        'tag': 'tun-in',
+        'inet4_address': ['172.19.0.1/30'],
+        'mtu': 9000,
+        'auto_route': true,
+        'strict_route': true,
+        'stack': 'gvisor',
+        'sniff': true,
+        'sniff_override_destination': true,
+      };
+    }
+    return {
+      'type': 'tun',
+      'tag': 'tun-in',
+      'interface_name': 'tun0',
+      'inet4_address': ['172.19.0.1/30'],
+      'auto_route': true,
+      'strict_route': true,
+      'stack': 'system',
+      'sniff': true,
+    };
+  }
+
   static Map<String, dynamic> build(VpnServer server, {bool tunMode = false}) {
     final inbounds = tunMode
-        ? [
-            {
-              'type': 'tun',
-              'tag': 'tun-in',
-              'interface_name': 'tun0',
-              'address': ['172.19.0.1/30'],
-              'auto_route': true,
-              'strict_route': true,
-              'stack': 'system',
-              'sniff': true,
-            }
-          ]
+        ? [_tunInbound()]
         : [
             {
               'type': 'mixed',

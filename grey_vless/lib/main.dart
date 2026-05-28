@@ -7,6 +7,7 @@ import 'package:window_manager/window_manager.dart';
 
 import 'services/connection_service.dart';
 import 'state/app_state.dart';
+import 'ui/app_theme.dart';
 import 'ui/home_screen.dart';
 
 Future<void> main() async {
@@ -24,9 +25,18 @@ Future<void> main() async {
   }
 
   final connection = ConnectionService();
+  if (Platform.isAndroid) {
+    connection.tunMode = true;
+  }
   runApp(
     ChangeNotifierProvider(
-      create: (_) => AppState(connection),
+      create: (_) {
+        final state = AppState(connection);
+        if (Platform.isAndroid) {
+          state.tunMode = true;
+        }
+        return state;
+      },
       child: const GreyVlessApp(),
     ),
   );
@@ -40,11 +50,7 @@ class GreyVlessApp extends StatelessWidget {
     return MaterialApp(
       title: 'Grey vless',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        brightness: Brightness.dark,
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF6B7280), brightness: Brightness.dark),
-        useMaterial3: true,
-      ),
+      theme: AppTheme.light(),
       home: const HomeScreen(),
     );
   }
