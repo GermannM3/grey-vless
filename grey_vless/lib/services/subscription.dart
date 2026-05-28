@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:http/http.dart' as http;
 
@@ -32,14 +33,21 @@ class SubscriptionService {
   static Future<String> _loadText(String source) async {
     if (source.isEmpty) throw Exception('Пустая ссылка или текст');
     if (RegExp(r'^https?://', caseSensitive: false).hasMatch(source)) {
-      final response = await http.get(
-        Uri.parse(source),
-        headers: {'User-Agent': 'GreyVless/1.0'},
-      ).timeout(const Duration(seconds: 20));
-      if (response.statusCode != 200) {
-        throw Exception('Не удалось загрузить подписку: HTTP ${response.statusCode}');
+      try {
+        final response = await http.get(
+          Uri.parse(source),
+          headers: {'User-Agent': 'GreyVless/1.0'},
+        ).timeout(const Duration(seconds: 20));
+        if (response.statusCode != 200) {
+          throw Exception('Не удалось загрузить подписку: HTTP ${response.statusCode}');
+        }
+        return _decodeMaybeBase64(response.body);
+      } on SocketException catch (e) {
+        throw Exception(
+          'Нет доступа к серверу подписки (${e.message}). '
+          'Проверьте интернет, отключите Private DNS или вставьте ссылки vless:// вручную.',
+        );
       }
-      return _decodeMaybeBase64(response.body);
     }
     return _decodeMaybeBase64(source);
   }

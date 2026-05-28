@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -17,6 +19,20 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   final _controller = TextEditingController();
   bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!Platform.isAndroid) return;
+      final state = context.read<AppState>();
+      if (state.tunMode) {
+        state.tunMode = false;
+        state.connection.tunMode = false;
+        state.refresh();
+      }
+    });
+  }
 
   @override
   void dispose() {
@@ -121,6 +137,14 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ],
             ),
+            if (Platform.isAndroid)
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Text(
+                  'На Android: сначала без TUN. Если подписка по URL не грузится — вставьте vless:// ссылки вручную.',
+                  style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
+                ),
+              ),
             const SizedBox(height: 8),
             Text(
               conn.isConnected

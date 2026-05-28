@@ -5,59 +5,92 @@ import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import 'android_native.dart';
+
 class SingboxRunner {
   Process? _process;
   String? _configPath;
 
   bool get isRunning => _process != null;
 
-  Future<String> _resolveBinary() async {
+  Future<void> _makeExecutable(String path) async {
     if (Platform.isAndroid) {
-      final dir = await getApplicationSupportDirectory();
-      final out = File(p.join(dir.path, 'sing-box'));
-      if (!await out.exists()) {
-        final data = await rootBundle.load('assets/bin/sing-box-android-arm64');
-        await out.writeAsBytes(data.buffer.asUint8List(), flush: true);
-        await Process.run('chmod', ['+x', out.path]);
+      final ok = await AndroidNative.chmodExecutable(path);
+      if (!ok) {
+        throw Exception(
+          'Не удалось выдать права на запуск sing-box. Переустановите приложение.',
+        );
       }
+      return;
+    }
+    if (!Platform.isWindows) {
+      final result = await Process.run('chmod', ['+x', path]);
+      if (result.exitCode != 0) {
+        throw Exception('chmod не сработал для sing-box');
+      }
+    }
+  }
+
+  Future<String> _resolveBinary() async {
+    final dir = await getApplicationSupportDirectory();
+    final out = File(p.join(dir.path, Platform.isWindows ? 'sing-box.exe' : 'sing-box'));
+
+    if (await out.exists()) {
+      await _makeExecutable(out.path);
       return out.path;
     }
 
-    final dir = await getApplicationSupportDirectory();
-    String asset;
-    String name;
-    if (Platform.isWindows) {
+    final String asset;
+    if (Platform.isAndroid) {
+      asset = 'assets/bin/sing-box-android-arm64';
+    } else if (Platform.isWindows) {
       asset = 'assets/bin/sing-box-windows-amd64.exe';
-      name = 'sing-box.exe';
     } else if (Platform.isMacOS) {
       final uname = await Process.run('uname', ['-m']);
       final arch = (uname.stdout as String).trim();
-      final isArm = arch == 'arm64';
-      asset = isArm ? 'assets/bin/sing-box-darwin-arm64' : 'assets/bin/sing-box-darwin-amd64';
-      name = 'sing-box';
+      asset = arch == 'arm64' ? 'assets/bin/sing-box-darwin-arm64' : 'assets/bin/sing-box-darwin-amd64';
     } else {
       asset = 'assets/bin/sing-box-linux-amd64';
-      name = 'sing-box';
     }
-    final out = File(p.join(dir.path, name));
-    if (!await out.exists()) {
-      final data = await rootBundle.load(asset);
-      await out.writeAsBytes(data.buffer.asUint8List(), flush: true);
-      if (!Platform.isWindows) {
-        await Process.run('chmod', ['+x', out.path]);
-      }
-    }
+
+    final data = await rootBundle.load(asset);
+    await out.writeAsBytes(
+      data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
+      flush: true,
+    );
+    await _makeExecutable(out.path);
     return out.path;
   }
 
-  Future<void> start(Map<String, dynamic> config) async {
+  Future<void> start(Map<String, dynamic> config, {bool tunMode = false}) async {
     await stop();
+
+    if (Platform.isAndroid && tunMode) {
+      final vpnReady = await AndroidNative.prepareVpn();
+      if (!vpnReady) {
+        throw Exception('Нужно разрешение VPN. Подтвердите запрос системы и попробуйте снова.');
+      }
+    }
+
     final binary = await _resolveBinary();
     final tempDir = await getTemporaryDirectory();
     _configPath = p.join(tempDir.path, 'grey-vless-${DateTime.now().millisecondsSinceEpoch}.json');
     await File(_configPath!).writeAsString(const JsonEncoder.withIndent('  ').convert(config));
 
-    _process = await Process.start(binary, ['run', '-c', _configPath!]);
+    try {
+      _process = await Process.start(
+        binary,
+        ['run', '-c', _configPath!],
+        mode: ProcessStartMode.normal,
+        runInShell: false,
+      );
+    } on ProcessException catch (e) {
+      throw Exception(
+        'Не удалось запустить sing-box (${e.message}). '
+        'На Android отключите TUN и попробуйте снова, либо переустановите APK.',
+      );
+    }
+
     await Future.delayed(const Duration(milliseconds: 900));
     try {
       final code = await _process!.exitCode.timeout(const Duration(milliseconds: 50));

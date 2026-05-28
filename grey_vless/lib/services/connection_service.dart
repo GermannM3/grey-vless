@@ -21,8 +21,8 @@ class ConnectionService {
   Future<void> connect(VpnServer server) async {
     await disconnect();
     final config = SingboxConfigBuilder.build(server, tunMode: tunMode);
-    await _runner.start(config);
-    if (!tunMode) {
+    await _runner.start(config, tunMode: tunMode);
+    if (!tunMode && !Platform.isAndroid && !Platform.isIOS) {
       await _proxy.enable(host: '127.0.0.1', port: SingboxConfigBuilder.localPort);
     }
     connectedServer = server;
@@ -30,7 +30,7 @@ class ConnectionService {
 
   Future<void> disconnect() async {
     await _runner.stop();
-    if (!tunMode) {
+    if (!tunMode && !Platform.isAndroid && !Platform.isIOS) {
       await _proxy.disable();
     }
     connectedServer = null;
