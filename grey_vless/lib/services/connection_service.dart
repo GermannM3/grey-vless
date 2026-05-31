@@ -27,7 +27,11 @@ class ConnectionService {
     final config = SingboxConfigBuilder.build(server, tunMode: tunMode);
     await _runner.start(config, tunMode: tunMode);
     if (!tunMode && !Platform.isAndroid && !Platform.isIOS) {
-      await _proxy.enable(host: '127.0.0.1', port: SingboxConfigBuilder.localPort);
+      try {
+        await _proxy.enable(host: '127.0.0.1', port: SingboxConfigBuilder.localPort);
+      } catch (_) {
+        // Другой прокси/VPN уже включён — sing-box на 127.0.0.1:7890 всё равно работает.
+      }
     }
     connectedServer = server;
   }

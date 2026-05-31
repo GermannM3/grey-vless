@@ -1,0 +1,11 @@
+# Grey vless — иконка ниндзя на все платформы
+flutter_launcher_icons:
+  image_path: assets/icons/grey-vless.png
+  android: true
+  adaptive_icon_background: "#F4F5F7"
+  adaptive_icon_foreground: assets/icons/grey-vless.png
+  macos:
+    generate: true
+  windows:
+    generate: true
+    icon_size: 256
