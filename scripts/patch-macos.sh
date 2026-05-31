@@ -31,12 +31,15 @@ else
 fi
 
 if [[ "$ARCH" == "x86_64" ]]; then
-  for f in "$RELEASE_XC"; do
+  for f in "$RELEASE_XC" "$DEBUG_XC"; do
     grep -q '^ARCHS' "$f" && perl -pi -e 's/^ARCHS.*$/ARCHS = x86_64/' "$f" || echo 'ARCHS = x86_64' >> "$f"
     grep -q '^ONLY_ACTIVE_ARCH' "$f" || echo 'ONLY_ACTIVE_ARCH = NO' >> "$f"
-    grep -q '^EXCLUDED_ARCHS' "$f" || echo 'EXCLUDED_ARCHS = arm64' >> "$f"
+    grep -q '^EXCLUDED_ARCHS' "$f" && perl -pi -e 's/^EXCLUDED_ARCHS.*$/EXCLUDED_ARCHS = arm64/' "$f" || echo 'EXCLUDED_ARCHS = arm64' >> "$f"
   done
   echo "macOS patch: Intel x86_64, min 11.0"
 else
+  for f in "$RELEASE_XC" "$DEBUG_XC"; do
+    grep -q '^ARCHS' "$f" 2>/dev/null && perl -pi -e 's/^ARCHS.*$/ARCHS = arm64/' "$f" || true
+  done
   echo "macOS patch: Apple Silicon arm64, min 11.0"
 fi

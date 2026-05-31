@@ -92,7 +92,7 @@ jobs:
       - run: |
           cd grey_vless
           flutter create . --org com.grey --project-name grey_vless --platforms=macos
-          chmod +x ../scripts/build-macos.sh
+          chmod +x ../scripts/build-macos.sh ../scripts/prepare-icons.sh ../scripts/patch-macos.sh
           ../scripts/build-macos.sh arm64
       - uses: actions/upload-artifact@v4
         with:
@@ -114,7 +114,7 @@ jobs:
       - run: |
           cd grey_vless
           flutter create . --org com.grey --project-name grey_vless --platforms=macos
-          chmod +x ../scripts/build-macos.sh
+          chmod +x ../scripts/build-macos.sh ../scripts/prepare-icons.sh ../scripts/patch-macos.sh
           ../scripts/build-macos.sh x86_64
       - uses: actions/upload-artifact@v4
         with:
@@ -189,7 +189,7 @@ jobs:
 
   release:
     needs: [linux, windows, macos-arm64, macos-intel, android, appimage]
-    if: always() && !cancelled()
+    if: always() && !cancelled() && needs.android.result == 'success' && needs.linux.result == 'success' && needs.windows.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -200,17 +200,24 @@ jobs:
       - name: Prepare release files
         id: prep
         run: |
-          mkdir -p dist
+          set -euo pipefail
+          DIST="$GITHUB_WORKSPACE/dist"
+          mkdir -p "$DIST"
           VERSION=$(grep '^version:' grey_vless/pubspec.yaml | awk '{print $2}' | cut -d+ -f1)
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          cp release-assets/grey-vless-android-apk/Grey-vless-android.apk dist/ 2>/dev/null || \
-            cp release-assets/grey-vless-android-apk/app-release.apk dist/Grey-vless-android.apk 2>/dev/null || true
-          cp release-assets/grey-vless-windows-x64/Grey-vless-windows-x64.zip dist/ 2>/dev/null || true
-          cp release-assets/grey-vless-macos-arm64/Grey-vless-macos-arm64.dmg dist/ 2>/dev/null || true
-          cp release-assets/grey-vless-macos-intel/Grey-vless-macos-x86_64.dmg dist/ 2>/dev/null || true
-          cp release-assets/grey-vless-appimage/Grey-vless-flutter-x86_64.AppImage dist/ 2>/dev/null || true
-          cd release-assets/grey-vless-linux-x64 && zip -qr ../../dist/Grey-vless-linux-x64.zip .
-          ls -la dist/
+
+          cp release-assets/grey-vless-android-apk/Grey-vless-android.apk "$DIST/" 2>/dev/null || \
+            cp release-assets/grey-vless-android-apk/app-release.apk "$DIST/Grey-vless-android.apk" 2>/dev/null || true
+          cp release-assets/grey-vless-windows-x64/Grey-vless-windows-x64.zip "$DIST/" 2>/dev/null || true
+          cp release-assets/grey-vless-macos-arm64/Grey-vless-macos-arm64.dmg "$DIST/" 2>/dev/null || true
+          cp release-assets/grey-vless-macos-intel/Grey-vless-macos-x86_64.dmg "$DIST/" 2>/dev/null || true
+          cp release-assets/grey-vless-appimage/Grey-vless-flutter-x86_64.AppImage "$DIST/" 2>/dev/null || true
+
+          if [[ -d release-assets/grey-vless-linux-x64 ]]; then
+            (cd release-assets/grey-vless-linux-x64 && zip -qr "$DIST/Grey-vless-linux-x64.zip" .)
+          fi
+
+          ls -la "$DIST/"
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -222,15 +229,13 @@ jobs:
             | Платформа | Файл |
             |-----------|------|
             | Android | Grey-vless-android.apk |
-            | Windows | Grey-vless-windows-x64.zip → запустить **grey_vless.exe** |
-            | macOS Apple Silicon (M1/M2/M3) | Grey-vless-macos-arm64.dmg |
-            | macOS Intel (Monterey 12 и новее) | Grey-vless-macos-x86_64.dmg |
+            | Windows | Grey-vless-windows-x64.zip → **grey_vless.exe** |
+            | macOS Apple Silicon | Grey-vless-macos-arm64.dmg |
+            | macOS Intel (Monterey 12+) | Grey-vless-macos-x86_64.dmg |
             | Linux Flutter | Grey-vless-linux-x64.zip |
-            | Linux AppImage | Grey-vless-flutter-x86_64.AppImage |
+            | Linux AppImage | Grey-vless-flutter-x86_64.AppImage (если есть) |
 
-            **macOS:** на старом Intel Mac (Monterey) нужен файл **x86_64**, не arm64.
-
-            **Windows:** в архиве один exe — `grey_vless.exe`. Если был другой прокси, приложение его временно заменит и вернёт при отключении.
+            **macOS Intel:** файл **x86_64**, не arm64.
           files: dist/*
           make_latest: true
           overwrite_files: true
