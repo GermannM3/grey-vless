@@ -1,14 +1,12 @@
 package com.grey.grey_vless
 
-import android.Manifest
 import android.app.Activity
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.net.VpnService
 import android.os.Build
 import android.os.Bundle
+import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.core.content.ContextCompat
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -17,9 +15,7 @@ import java.io.File
 class MainActivity : FlutterActivity() {
     private val channelName = "com.grey.vless/android"
     private var vpnPermissionResult: MethodChannel.Result? = null
-    private lateinit var vpnPrepareLauncher: androidx.activity.result.ActivityResultLauncher<Intent>
-    private val notifPermissionLauncher =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { _ -> }
+    private lateinit var vpnPrepareLauncher: ActivityResultLauncher<Intent>
 
     override fun onCreate(savedInstanceState: Bundle?) {
         vpnPrepareLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -27,13 +23,6 @@ class MainActivity : FlutterActivity() {
             vpnPermissionResult = null
         }
         super.onCreate(savedInstanceState)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
-                != PackageManager.PERMISSION_GRANTED
-            ) {
-                notifPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-            }
-        }
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {

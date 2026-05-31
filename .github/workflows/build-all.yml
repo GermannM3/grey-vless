@@ -140,11 +140,14 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
-      - run: |
-          chmod +x scripts/prepare-icons.sh scripts/build-hev-android.sh
-          ./scripts/prepare-icons.sh
+      - run: chmod +x scripts/prepare-icons.sh scripts/build-hev-android.sh
+      - run: ./scripts/prepare-icons.sh
+      - name: Build hev native lib
+        run: |
           export ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME"
           ./scripts/build-hev-android.sh
+      - name: Build Android APK
+        run: |
           cd grey_vless
           flutter create . --org com.grey --project-name grey_vless --platforms=android
           flutter pub get
