@@ -141,7 +141,6 @@ jobs:
         with:
           channel: stable
       - run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq python3-pil
           chmod +x scripts/prepare-icons.sh scripts/build-hev-android.sh
           ./scripts/prepare-icons.sh
           export ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME"
