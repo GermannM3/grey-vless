@@ -9,12 +9,10 @@ import android.net.VpnService
 import android.os.Build
 import android.os.IBinder
 import android.os.ParcelFileDescriptor
+import android.util.Log
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 
-/**
- * Полный VPN: VpnService (иконка в статус-баре) + sing-box (mixed) + hev (tun→socks5).
- */
 class GreyVpnService : VpnService() {
     private var tunInterface: ParcelFileDescriptor? = null
     private var singboxProcess: Process? = null
@@ -38,13 +36,21 @@ class GreyVpnService : VpnService() {
                     return START_NOT_STICKY
                 }
                 stopping.set(false)
-                startForeground(NOTIF_ID, buildNotification())
+                try {
+                    startForeground(NOTIF_ID, buildNotification())
+                } catch (e: Exception) {
+                    Log.e(TAG, "startForeground failed", e)
+                    stopSelf()
+                    return START_NOT_STICKY
+                }
                 stopTunnel()
 
                 try {
                     startVpnTunnel(configPath, binaryPath, proxyPort)
                 } catch (e: Exception) {
+                    Log.e(TAG, "VPN start failed", e)
                     stopTunnel()
+                    stopForeground(STOP_FOREGROUND_REMOVE)
                     stopSelf()
                     return START_NOT_STICKY
                 }
@@ -60,7 +66,21 @@ class GreyVpnService : VpnService() {
             binary.setExecutable(true, false)
         }
 
-        tunInterface = Builder()
+        singboxProcess = ProcessBuilder(binaryPath, "run", "-c", configPath)
+            .redirectErrorStream(true)
+            .start()
+
+        Thread.sleep(900)
+
+        if (singboxProcess?.isAlive != true) {
+            throw IllegalStateException("sing-box не запустился")
+        }
+
+        if (!HevBridge.isAvailable()) {
+            throw IllegalStateException("TUN-мост недоступен на этом устройстве")
+        }
+
+        val builder = Builder()
             .setSession("Grey vless")
             .addAddress("172.19.0.1", 30)
             .addRoute("0.0.0.0", 0)
@@ -69,17 +89,16 @@ class GreyVpnService : VpnService() {
             .addDnsServer("1.1.1.1")
             .setMtu(1500)
             .setBlocking(false)
-            .establish()
+        try {
+            builder.addDisallowedApplication(packageName)
+        } catch (e: Exception) {
+            Log.w(TAG, "addDisallowedApplication failed", e)
+        }
+        tunInterface = builder.establish()
 
         if (tunInterface == null) {
             throw IllegalStateException("VpnService.establish() вернул null")
         }
-
-        singboxProcess = ProcessBuilder(binaryPath, "run", "-c", configPath)
-            .redirectErrorStream(true)
-            .start()
-
-        Thread.sleep(800)
 
         val hevConfig = """
             tunnel:
@@ -99,11 +118,12 @@ class GreyVpnService : VpnService() {
         hevThread = Thread {
             try {
                 HevBridge.runBlocking(hevFile.absolutePath, tunFd)
-            } catch (_: UnsatisfiedLinkError) {
-                // lib не собрана — VPN-иконка есть, туннеля нет
+            } catch (e: Exception) {
+                Log.e(TAG, "hev tunnel stopped", e)
             }
         }.apply {
             name = "hev-tun2socks"
+            isDaemon = true
             start()
         }
     }
@@ -163,6 +183,7 @@ class GreyVpnService : VpnService() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     companion object {
+        private const val TAG = "GreyVpnService"
         const val ACTION_START = "com.grey.grey_vless.vpn.START"
         const val ACTION_STOP = "com.grey.grey_vless.vpn.STOP"
         const val EXTRA_CONFIG = "config"

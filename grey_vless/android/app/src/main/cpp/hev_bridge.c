@@ -1,6 +1,13 @@
 #include <jni.h>
 #include "hev-main.h"
 
+JNIEXPORT jboolean JNICALL
+Java_com_grey_grey_1vless_HevBridge_nativeHasRealHev(JNIEnv *env, jclass clazz) {
+    (void)env;
+    (void)clazz;
+    return JNI_TRUE;
+}
+
 JNIEXPORT jint JNICALL
 Java_com_grey_grey_1vless_HevBridge_nativeRun(JNIEnv *env, jclass clazz, jstring jpath, jint tun_fd) {
     const char *path = (*env)->GetStringUTFChars(env, jpath, NULL);

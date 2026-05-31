@@ -1,5 +1,12 @@
 #include <jni.h>
 
+JNIEXPORT jboolean JNICALL
+Java_com_grey_grey_1vless_HevBridge_nativeHasRealHev(JNIEnv *env, jclass clazz) {
+    (void)env;
+    (void)clazz;
+    return JNI_FALSE;
+}
+
 int hev_socks5_tunnel_main(const char *config_path, int tun_fd) {
     (void)config_path;
     (void)tun_fd;

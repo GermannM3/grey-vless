@@ -1,8 +1,14 @@
 package com.grey.grey_vless
 
+import android.Manifest
+import android.app.Activity
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.VpnService
 import android.os.Build
+import android.os.Bundle
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -10,12 +16,32 @@ import java.io.File
 
 class MainActivity : FlutterActivity() {
     private val channelName = "com.grey.vless/android"
+    private var vpnPermissionResult: MethodChannel.Result? = null
+    private lateinit var vpnPrepareLauncher: androidx.activity.result.ActivityResultLauncher<Intent>
+    private val notifPermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { _ -> }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        vpnPrepareLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            vpnPermissionResult?.success(result.resultCode == Activity.RESULT_OK)
+            vpnPermissionResult = null
+        }
+        super.onCreate(savedInstanceState)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED
+            ) {
+                notifPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
             .setMethodCallHandler { call, result ->
                 when (call.method) {
+                    "isHevAvailable" -> result.success(HevBridge.isAvailable())
                     "chmodExecutable" -> {
                         val path = call.argument<String>("path")
                         if (path.isNullOrBlank()) {
@@ -29,8 +55,12 @@ class MainActivity : FlutterActivity() {
                     "prepareVpn" -> {
                         val intent = VpnService.prepare(this)
                         if (intent != null) {
-                            startActivityForResult(intent, 44)
-                            result.success(false)
+                            if (vpnPermissionResult != null) {
+                                result.error("busy", "VPN permission request already pending", null)
+                                return@setMethodCallHandler
+                            }
+                            vpnPermissionResult = result
+                            vpnPrepareLauncher.launch(intent)
                         } else {
                             result.success(true)
                         }
@@ -43,18 +73,26 @@ class MainActivity : FlutterActivity() {
                             result.error("invalid_args", "configPath/binaryPath required", null)
                             return@setMethodCallHandler
                         }
+                        if (!HevBridge.isAvailable()) {
+                            result.error("no_hev", "TUN bridge not available on this device", null)
+                            return@setMethodCallHandler
+                        }
                         val intent = Intent(this, GreyVpnService::class.java).apply {
                             action = GreyVpnService.ACTION_START
                             putExtra(GreyVpnService.EXTRA_CONFIG, configPath)
                             putExtra(GreyVpnService.EXTRA_BINARY, binaryPath)
                             putExtra(GreyVpnService.EXTRA_PROXY_PORT, proxyPort)
                         }
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                            startForegroundService(intent)
-                        } else {
-                            startService(intent)
+                        try {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                startForegroundService(intent)
+                            } else {
+                                startService(intent)
+                            }
+                            result.success(true)
+                        } catch (e: Exception) {
+                            result.error("start_failed", e.message, null)
                         }
-                        result.success(true)
                     }
                     "stopVpn" -> {
                         val intent = Intent(this, GreyVpnService::class.java).apply {

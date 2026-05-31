@@ -223,7 +223,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               await PingService.pingAll(state.servers);
                               state.refresh();
                             }),
-                    child: const Text('Пинг'),
+                    child: const Text('Пинг (TCP)'),
                   ),
                   OutlinedButton(
                     onPressed: _busy || state.servers.isEmpty
@@ -312,6 +312,12 @@ class _ServerTile extends StatelessWidget {
   final VoidCallback? onTap;
   final VoidCallback? onConnect;
 
+  static String _pingText(VpnServer server) {
+    if (server.pingError != null) return server.pingError!;
+    if (server.pingMs != null) return 'TCP ${server.pingMs} ms';
+    return '—';
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -332,7 +338,7 @@ class _ServerTile extends StatelessWidget {
         onTap: onTap,
         title: Text(server.name),
         subtitle: Text(
-          '${server.address} · ${server.protocol.toUpperCase()} · ${server.pingMs != null ? "${server.pingMs} ms" : "—"}',
+          '${server.address} · ${server.protocol.toUpperCase()} · ${_pingText(server)}',
           style: theme.textTheme.bodySmall,
         ),
         trailing: connected

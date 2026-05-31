@@ -18,7 +18,6 @@ class SingboxRunner {
   bool get isRunning => _androidVpn || (_process != null && _alive);
 
   Future<bool> _portOpen() async {
-    if (Platform.isAndroid && _androidVpn) return true;
     try {
       final socket = await Socket.connect('127.0.0.1', SingboxConfigBuilder.localPort,
           timeout: const Duration(milliseconds: 400));
@@ -91,6 +90,11 @@ class SingboxRunner {
     await stop();
 
     if (Platform.isAndroid && tunMode) {
+      if (!await AndroidNative.isHevAvailable()) {
+        throw Exception(
+          'TUN недоступен на этом телефоне. Отключите переключатель TUN — подключение через прокси всё равно работает.',
+        );
+      }
       final vpnReady = await AndroidNative.prepareVpn();
       if (!vpnReady) {
         throw Exception('Нужно разрешение VPN. Подтвердите запрос системы и нажмите «Подключить» снова.');
