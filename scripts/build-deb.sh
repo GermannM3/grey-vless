@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 NAME="grey-vless"
-VERSION="0.4.5"
+VERSION="0.4.6"
 ARCH="amd64"
 INSTALL_DIR="/opt/grey-vless"
 PKG_DIR="$ROOT/build/deb/${NAME}_${VERSION}_${ARCH}"
