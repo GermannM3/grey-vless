@@ -11,9 +11,23 @@ import 'android_native.dart';
 class SingboxRunner {
   Process? _process;
   String? _configPath;
+  String? _logPath;
   bool _androidVpn = false;
+  bool _alive = false;
 
-  bool get isRunning => _process != null || _androidVpn;
+  bool get isRunning => _androidVpn || (_process != null && _alive);
+
+  Future<bool> _portOpen() async {
+    if (Platform.isAndroid && _androidVpn) return true;
+    try {
+      final socket = await Socket.connect('127.0.0.1', SingboxConfigBuilder.localPort,
+          timeout: const Duration(milliseconds: 400));
+      await socket.close();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
 
   Future<void> _makeExecutable(String path) async {
     if (Platform.isAndroid) {
@@ -64,6 +78,15 @@ class SingboxRunner {
     return out.path;
   }
 
+  Future<String> _readLogTail() async {
+    if (_logPath == null) return '';
+    final file = File(_logPath!);
+    if (!await file.exists()) return '';
+    final content = await file.readAsString();
+    if (content.length <= 900) return content;
+    return content.substring(content.length - 900);
+  }
+
   Future<void> start(Map<String, dynamic> config, {bool tunMode = false}) async {
     await stop();
 
@@ -77,7 +100,14 @@ class SingboxRunner {
     final binary = await _resolveBinary();
     final tempDir = await getTemporaryDirectory();
     _configPath = p.join(tempDir.path, 'grey-vless-${DateTime.now().millisecondsSinceEpoch}.json');
+    _logPath = p.join(tempDir.path, 'grey-vless-${DateTime.now().millisecondsSinceEpoch}.log');
     await File(_configPath!).writeAsString(const JsonEncoder.withIndent('  ').convert(config));
+
+    final check = await Process.run(binary, ['check', '-c', _configPath!]);
+    if (check.exitCode != 0) {
+      final err = '${check.stderr}${check.stdout}'.trim();
+      throw Exception('Конфиг sing-box невалиден: ${err.isEmpty ? "проверьте сервер" : err}');
+    }
 
     if (Platform.isAndroid && tunMode) {
       await AndroidNative.startVpn(
@@ -87,6 +117,9 @@ class SingboxRunner {
       );
       _androidVpn = true;
       await Future.delayed(const Duration(milliseconds: 1500));
+      if (!await _portOpen()) {
+        throw Exception('VPN запущен, но прокси 127.0.0.1:${SingboxConfigBuilder.localPort} недоступен');
+      }
       return;
     }
 
@@ -98,24 +131,47 @@ class SingboxRunner {
         runInShell: false,
       );
     } on ProcessException catch (e) {
-      throw Exception(
-        'Не удалось запустить sing-box (${e.message}). '
-        'На Android включите TUN (VPN) и подтвердите разрешение.',
-      );
+      throw Exception('Не удалось запустить sing-box (${e.message})');
     }
 
-    await Future.delayed(const Duration(milliseconds: 900));
-    try {
-      final code = await _process!.exitCode.timeout(const Duration(milliseconds: 50));
-      final err = await _process!.stderr.transform(utf8.decoder).join();
-      _process = null;
-      throw Exception('sing-box завершился (код $code): ${err.trim().isEmpty ? "проверьте конфиг" : err}');
-    } catch (_) {
-      // still running
+    final logFile = File(_logPath!);
+    final proc = _process!;
+    proc.stderr.listen((data) => logFile.writeAsBytesSync(data, mode: FileMode.append, flush: true));
+    proc.stdout.listen((data) => logFile.writeAsBytesSync(data, mode: FileMode.append, flush: true));
+    proc.exitCode.then((_) => _alive = false);
+
+    for (var i = 0; i < 25; i++) {
+      await Future.delayed(const Duration(milliseconds: 150));
+      try {
+        await proc.exitCode.timeout(const Duration(milliseconds: 1));
+        final log = await _readLogTail();
+        _process = null;
+        _alive = false;
+        var msg = 'sing-box завершился';
+        if (tunMode && log.toLowerCase().contains('operation not permitted')) {
+          msg += '. TUN нужны права: sudo setcap cap_net_admin+ep на sing-box';
+        }
+        if (log.isNotEmpty) msg += ': $log';
+        throw Exception(msg);
+      } on TimeoutException {
+        // still running
+      }
+      if (await _portOpen()) {
+        _alive = true;
+        return;
+      }
     }
+
+    final log = await _readLogTail();
+    await stop();
+    throw Exception(
+      'Порт 127.0.0.1:${SingboxConfigBuilder.localPort} не открылся. '
+      '${log.isEmpty ? "sing-box не слушает прокси." : log}',
+    );
   }
 
   Future<void> stop() async {
+    _alive = false;
     if (_androidVpn) {
       await AndroidNative.stopVpn();
       _androidVpn = false;
@@ -135,6 +191,11 @@ class SingboxRunner {
       final file = File(_configPath!);
       if (await file.exists()) await file.delete();
       _configPath = null;
+    }
+    if (_logPath != null) {
+      final file = File(_logPath!);
+      if (await file.exists()) await file.delete();
+      _logPath = null;
     }
   }
 }

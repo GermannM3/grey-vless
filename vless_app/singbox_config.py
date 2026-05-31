@@ -1,6 +1,55 @@
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 from .models import Server
+
+LOCAL_PORT = 7890
+
+
+def _mixed_inbound(port: int = LOCAL_PORT) -> Dict[str, Any]:
+    return {
+        "type": "mixed",
+        "tag": "mixed-in",
+        "listen": "127.0.0.1",
+        "listen_port": port,
+    }
+
+
+def _tun_inbound() -> Dict[str, Any]:
+    return {
+        "type": "tun",
+        "tag": "tun-in",
+        "interface_name": "tun0",
+        "address": ["172.19.0.1/30"],
+        "auto_route": True,
+        "strict_route": True,
+        "stack": "system",
+        "sniff": True,
+        "sniff_override_destination": True,
+    }
+
+
+def _dns_block() -> Dict[str, Any]:
+    return {
+        "servers": [
+            {"tag": "remote", "address": "tls://8.8.8.8", "detour": "proxy"},
+            {"tag": "local", "address": "223.5.5.5", "detour": "direct"},
+        ],
+        "rules": [
+            {"outbound": "any", "server": "remote"},
+        ],
+        "final": "remote",
+        "strategy": "prefer_ipv4",
+    }
+
+
+def _route_block() -> Dict[str, Any]:
+    return {
+        "auto_detect_interface": True,
+        "rules": [
+            {"protocol": "dns", "action": "hijack-dns"},
+        ],
+        "final": "proxy",
+    }
 
 
 def _transport(server: Server) -> Dict[str, Any] | None:
@@ -125,7 +174,7 @@ def _shadowsocks_outbound(server: Server) -> Dict[str, Any]:
     }
 
 
-def build_config(server: Server, local_port: int = 7890, tun_mode: bool = False) -> Dict[str, Any]:
+def build_config(server: Server, local_port: int = LOCAL_PORT, tun_mode: bool = False) -> Dict[str, Any]:
     builders = {
         "vless": _vless_outbound,
         "vmess": _vmess_outbound,
@@ -137,46 +186,20 @@ def build_config(server: Server, local_port: int = 7890, tun_mode: bool = False)
     if not builder:
         raise ValueError(f"Протокол {server.protocol} пока не поддерживается")
 
+    inbounds: List[Dict[str, Any]] = []
     if tun_mode:
-        inbounds = [
-            {
-                "type": "tun",
-                "tag": "tun-in",
-                "interface_name": "tun0",
-                "address": ["172.19.0.1/30"],
-                "auto_route": True,
-                "strict_route": True,
-                "stack": "system",
-                "sniff": True,
-            }
-        ]
-    else:
-        inbounds = [
-            {
-                "type": "mixed",
-                "tag": "mixed-in",
-                "listen": "127.0.0.1",
-                "listen_port": local_port,
-            }
-        ]
+        inbounds.append(_tun_inbound())
+    # Локальный HTTP/SOCKS — всегда (curl -x, браузер, системный прокси)
+    inbounds.append(_mixed_inbound(local_port))
 
     return {
         "log": {"level": "warn"},
-        "dns": {
-            "servers": [
-                {"tag": "google", "address": "8.8.8.8"},
-                {"tag": "local", "address": "223.5.5.5", "detour": "direct"},
-            ],
-            "strategy": "prefer_ipv4",
-        },
+        "dns": _dns_block(),
         "inbounds": inbounds,
         "outbounds": [
             builder(server),
             {"type": "direct", "tag": "direct"},
             {"type": "block", "tag": "block"},
         ],
-        "route": {
-            "auto_detect_interface": True,
-            "final": "proxy",
-        },
+        "route": _route_block(),
     }

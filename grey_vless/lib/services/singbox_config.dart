@@ -5,13 +5,19 @@ import '../models/server.dart';
 class SingboxConfigBuilder {
   static const localPort = 7890;
 
+  static Map<String, dynamic> _mixedInbound() => {
+        'type': 'mixed',
+        'tag': 'mixed-in',
+        'listen': '127.0.0.1',
+        'listen_port': localPort,
+      };
+
   static Map<String, dynamic> _tunInbound() {
     if (Platform.isAndroid) {
       return {
         'type': 'tun',
         'tag': 'tun-in',
-        'inet4_address': ['172.19.0.1/30'],
-        'mtu': 9000,
+        'address': ['172.19.0.1/30'],
         'auto_route': true,
         'strict_route': true,
         'stack': 'gvisor',
@@ -23,34 +29,35 @@ class SingboxConfigBuilder {
       'type': 'tun',
       'tag': 'tun-in',
       'interface_name': 'tun0',
-      'inet4_address': ['172.19.0.1/30'],
+      'address': ['172.19.0.1/30'],
       'auto_route': true,
       'strict_route': true,
       'stack': 'system',
       'sniff': true,
+      'sniff_override_destination': true,
     };
   }
 
   static Map<String, dynamic> build(VpnServer server, {bool tunMode = false}) {
-    final useTunInbound = tunMode && !Platform.isAndroid;
-    final inbounds = useTunInbound
-        ? [_tunInbound()]
-        : [
-            {
-              'type': 'mixed',
-              'tag': 'mixed-in',
-              'listen': '127.0.0.1',
-              'listen_port': localPort,
-            }
-          ];
+    final inbounds = <Map<String, dynamic>>[];
+    final useTun = tunMode && !Platform.isAndroid;
+    if (useTun) {
+      inbounds.add(_tunInbound());
+    }
+    // Локальный HTTP/SOCKS — всегда (curl -x, системный прокси)
+    inbounds.add(_mixedInbound());
 
     return {
       'log': {'level': 'warn'},
       'dns': {
         'servers': [
-          {'tag': 'google', 'address': '8.8.8.8'},
+          {'tag': 'remote', 'address': 'tls://8.8.8.8', 'detour': 'proxy'},
           {'tag': 'local', 'address': '223.5.5.5', 'detour': 'direct'},
         ],
+        'rules': [
+          {'outbound': 'any', 'server': 'remote'},
+        ],
+        'final': 'remote',
         'strategy': 'prefer_ipv4',
       },
       'inbounds': inbounds,
@@ -61,6 +68,9 @@ class SingboxConfigBuilder {
       ],
       'route': {
         'auto_detect_interface': true,
+        'rules': [
+          {'protocol': 'dns', 'action': 'hijack-dns'},
+        ],
         'final': 'proxy',
       },
     };
