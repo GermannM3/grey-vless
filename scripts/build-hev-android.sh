@@ -20,6 +20,10 @@ mkdir -p "$TMP" "$JNI_LIBS"
 rm -rf "$TMP/src"
 git clone --depth 1 --branch "$HEV_TAG" --recursive https://github.com/heiher/hev-socks5-tunnel "$TMP/src"
 
+# Grey vless вызывает hev только через C API (grey_hev_bridge).
+# hev-jni.c регистрирует JNI для hev/htproxy.TProxyService — без этого класса падает JNI_OnLoad.
+rm -f "$TMP/src/src/hev-jni.c"
+
 cd "$TMP/src"
 "$NDK/ndk-build" \
   NDK_PROJECT_PATH=. \

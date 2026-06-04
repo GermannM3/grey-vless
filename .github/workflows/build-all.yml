@@ -171,7 +171,7 @@ jobs:
           name: grey-vless-linux-x64
           path: bundle
       - run: |
-          sudo apt-get update && sudo apt-get install -y fuse libfuse2
+          pip3 install pillow --quiet 2>/dev/null || true
           wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage -O appimagetool
           chmod +x appimagetool
           mkdir -p AppDir/usr/bin AppDir/usr/share/applications
