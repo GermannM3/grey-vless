@@ -5,8 +5,6 @@ import android.content.Intent
 import android.net.VpnService
 import android.os.Build
 import android.os.Bundle
-import androidx.activity.result.ActivityResultLauncher
-import androidx.activity.result.contract.ActivityResultContracts
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -15,14 +13,15 @@ import java.io.File
 class MainActivity : FlutterActivity() {
     private val channelName = "com.grey.vless/android"
     private var vpnPermissionResult: MethodChannel.Result? = null
-    private lateinit var vpnPrepareLauncher: ActivityResultLauncher<Intent>
 
-    override fun onCreate(savedInstanceState: Bundle?) {
-        vpnPrepareLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-            vpnPermissionResult?.success(result.resultCode == Activity.RESULT_OK)
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (requestCode == VPN_REQUEST_CODE) {
+            vpnPermissionResult?.success(resultCode == Activity.RESULT_OK)
             vpnPermissionResult = null
+            return
         }
-        super.onCreate(savedInstanceState)
+        super.onActivityResult(requestCode, resultCode, data)
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -49,7 +48,8 @@ class MainActivity : FlutterActivity() {
                                 return@setMethodCallHandler
                             }
                             vpnPermissionResult = result
-                            vpnPrepareLauncher.launch(intent)
+                            @Suppress("DEPRECATION")
+                            startActivityForResult(intent, VPN_REQUEST_CODE)
                         } else {
                             result.success(true)
                         }
@@ -93,5 +93,9 @@ class MainActivity : FlutterActivity() {
                     else -> result.notImplemented()
                 }
             }
+    }
+
+    companion object {
+        private const val VPN_REQUEST_CODE = 1001
     }
 }

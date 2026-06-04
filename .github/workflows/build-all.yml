@@ -149,10 +149,9 @@ jobs:
       - name: Build Android APK
         run: |
           cd grey_vless
-          flutter create . --org com.grey --project-name grey_vless --platforms=android
           flutter pub get
           dart run flutter_launcher_icons
-          flutter build apk --release
+          flutter build apk --release --android-skip-build-dependency-validation
           mkdir -p ../dist
           cp build/app/outputs/flutter-apk/app-release.apk ../dist/Grey-vless-android.apk
       - uses: actions/upload-artifact@v4
@@ -223,8 +222,8 @@ jobs:
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ steps.prep.outputs.version }}-build.${{ github.run_number }}
-          name: Grey vless v${{ steps.prep.outputs.version }}
+          tag_name: v${{ steps.prep.outputs.version }}-build.10
+          name: Grey vless v${{ steps.prep.outputs.version }} (build 10)
           body: |
             ## Скачать (доступно всем)
 
