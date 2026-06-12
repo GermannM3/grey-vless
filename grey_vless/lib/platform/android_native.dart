@@ -87,4 +87,8 @@ class AndroidNative {
   static Future<void> stopVpn() async {
     await _channel.invokeMethod<void>('stopVpn');
   }
+
+  static Future<void> installApk(String path) async {
+    await _channel.invokeMethod<void>('installApk', {'path': path});
+  }
 }

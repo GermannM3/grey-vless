@@ -8,8 +8,10 @@ import '../models/server.dart';
 import '../services/connection_service.dart';
 import '../services/ping_service.dart';
 import '../services/subscription.dart';
+import '../services/update_service.dart';
 import '../state/app_state.dart';
 import 'app_theme.dart';
+import 'update_dialog.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -21,6 +23,42 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   final _controller = TextEditingController();
   bool _busy = false;
+  bool _checkingUpdate = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _checkForUpdates(silent: true));
+  }
+
+  Future<void> _checkForUpdates({bool silent = false}) async {
+    if (_checkingUpdate) return;
+    _checkingUpdate = true;
+    try {
+      final info = await UpdateService.checkForUpdate();
+      if (info != null && mounted) {
+        await showUpdateDialog(context, info);
+      } else if (!silent && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Установлена последняя версия'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (_) {
+      if (!silent && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Не удалось проверить обновления'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } finally {
+      _checkingUpdate = false;
+    }
+  }
 
   @override
   void dispose() {
@@ -116,7 +154,16 @@ class _HomeScreenState extends State<HomeScreen> {
     final canDisconnect = !_busy && conn.isConnected;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Grey vless')),
+      appBar: AppBar(
+        title: const Text('Grey vless'),
+        actions: [
+          IconButton(
+            tooltip: 'Проверить обновления',
+            onPressed: _checkingUpdate ? null : () => _checkForUpdates(),
+            icon: const Icon(Icons.system_update),
+          ),
+        ],
+      ),
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(16),

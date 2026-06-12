@@ -205,7 +205,9 @@ jobs:
           DIST="$GITHUB_WORKSPACE/dist"
           mkdir -p "$DIST"
           VERSION=$(grep '^version:' grey_vless/pubspec.yaml | awk '{print $2}' | cut -d+ -f1)
+          BUILD=$(grep '^version:' grey_vless/pubspec.yaml | awk '{print $2}' | cut -d+ -f2)
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "build=$BUILD" >> "$GITHUB_OUTPUT"
 
           cp release-assets/grey-vless-android-apk/Grey-vless-android.apk "$DIST/" 2>/dev/null || \
             cp release-assets/grey-vless-android-apk/app-release.apk "$DIST/Grey-vless-android.apk" 2>/dev/null || true
@@ -222,8 +224,8 @@ jobs:
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ steps.prep.outputs.version }}-build.11
-          name: Grey vless v${{ steps.prep.outputs.version }} (build 11)
+          tag_name: v${{ steps.prep.outputs.version }}-build.${{ steps.prep.outputs.build }}
+          name: Grey vless v${{ steps.prep.outputs.version }} (build ${{ steps.prep.outputs.build }})
           body: |
             ## Скачать (доступно всем)
 

@@ -15,6 +15,7 @@ from vless_app.paths import singbox_binary
 from vless_app.settings import AppSettings
 from vless_app.subscription import parse_subscription
 from vless_app.tray import TrayIcon
+from vless_app.update import check_for_update, prompt_update
 
 
 class MainWindow(Gtk.ApplicationWindow):
@@ -329,8 +330,20 @@ class GreyVlessApp(Gtk.Application):
             self.window = MainWindow(self, self.connection, self.settings)
             self.tray = TrayIcon(self.window, self.connection, self._quit)
             self.window.set_tray(self.tray)
+            self._schedule_update_check()
         self.window.show_all()
         self.window.present()
+
+    def _schedule_update_check(self) -> None:
+        def worker() -> None:
+            try:
+                info = check_for_update()
+            except OSError:
+                return
+            if info and self.window:
+                GLib.idle_add(prompt_update, self.window, info)
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def _quit(self) -> None:
         if self.window:
