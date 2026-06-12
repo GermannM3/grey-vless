@@ -6,6 +6,7 @@ import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'services/connection_service.dart';
+import 'services/settings_repository.dart';
 import 'state/app_state.dart';
 import 'ui/app_theme.dart';
 import 'ui/home_screen.dart';
@@ -15,7 +16,7 @@ Future<void> main() async {
 
   if (Platform.isLinux || Platform.isWindows || Platform.isMacOS) {
     await windowManager.ensureInitialized();
-    const options = WindowOptions(size: Size(820, 620), center: true, title: 'Grey vless');
+    const options = WindowOptions(size: Size(420, 780), center: true, title: 'Grey vless');
     windowManager.waitUntilReadyToShow(options, () async {
       await windowManager.show();
       await windowManager.focus();
@@ -24,10 +25,15 @@ Future<void> main() async {
     await trayManager.setToolTip('Grey vless');
   }
 
+  final settings = SettingsRepository();
+  await settings.init();
   final connection = ConnectionService();
+  final state = AppState(connection, settings);
+  await state.load();
+
   runApp(
-    ChangeNotifierProvider(
-      create: (_) => AppState(connection),
+    ChangeNotifierProvider.value(
+      value: state,
       child: const GreyVlessApp(),
     ),
   );
@@ -41,7 +47,7 @@ class GreyVlessApp extends StatelessWidget {
     return MaterialApp(
       title: 'Grey vless',
       debugShowCheckedModeBanner: false,
-      theme: AppTheme.light(),
+      theme: AppTheme.dark(),
       home: const HomeScreen(),
     );
   }

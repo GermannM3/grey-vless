@@ -142,6 +142,31 @@ jobs:
           channel: stable
       - run: chmod +x scripts/prepare-icons.sh scripts/build-hev-android.sh
       - run: ./scripts/prepare-icons.sh
+      - name: Restore release keystore
+        uses: actions/cache@v4
+        id: keystore-cache
+        with:
+          path: grey_vless/android/keystore/grey-vless-release.jks
+          key: grey-vless-release-keystore-v1
+      - name: Generate release keystore
+        if: steps.keystore-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p grey_vless/android/keystore
+          keytool -genkey -v \
+            -keystore grey_vless/android/keystore/grey-vless-release.jks \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -alias grey-vless \
+            -storepass GreyVlessReleaseKey \
+            -keypass GreyVlessReleaseKey \
+            -dname "CN=Grey vless, OU=Mobile, O=GermannM3, C=RU"
+      - name: Create key.properties
+        run: |
+          cat > grey_vless/android/key.properties <<'EOF'
+          storePassword=GreyVlessReleaseKey
+          keyPassword=GreyVlessReleaseKey
+          keyAlias=grey-vless
+          storeFile=keystore/grey-vless-release.jks
+          EOF
       - name: Build hev native lib
         run: |
           export ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME"

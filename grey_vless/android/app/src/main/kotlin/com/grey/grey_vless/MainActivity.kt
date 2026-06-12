@@ -44,6 +44,19 @@ class MainActivity : FlutterActivity() {
                             result.error("prepare_failed", e.message, null)
                         }
                     }
+                    "prepareSingboxConfig" -> {
+                        val path = call.argument<String>("path")
+                        if (path.isNullOrBlank()) {
+                            result.error("invalid_path", "Path is empty", null)
+                            return@setMethodCallHandler
+                        }
+                        try {
+                            val ready = SingboxHelper.prepareConfig(applicationContext, path)
+                            result.success(ready)
+                        } catch (e: Exception) {
+                            result.error("prepare_failed", e.message, null)
+                        }
+                    }
                     "chmodExecutable" -> {
                         val path = call.argument<String>("path")
                         if (path.isNullOrBlank()) {
@@ -80,7 +93,9 @@ class MainActivity : FlutterActivity() {
                             return@setMethodCallHandler
                         }
                         try {
-                            SingboxHelper.startProxy(binaryPath, configPath)
+                            val readyConfig = SingboxHelper.prepareConfig(applicationContext, configPath)
+                            val readyBinary = SingboxHelper.prepareExecutable(applicationContext, binaryPath)
+                            SingboxHelper.startProxy(applicationContext, readyBinary, readyConfig)
                             result.success(true)
                         } catch (e: Exception) {
                             result.error("start_failed", e.message, null)
@@ -91,6 +106,7 @@ class MainActivity : FlutterActivity() {
                         result.success(true)
                     }
                     "singboxIsRunning" -> result.success(SingboxHelper.isProxyRunning())
+                    "singboxLastLog" -> result.success(SingboxHelper.getLastLog(applicationContext))
                     "prepareVpn" -> {
                         val intent = VpnService.prepare(this)
                         if (intent != null) {
@@ -117,13 +133,15 @@ class MainActivity : FlutterActivity() {
                             result.error("no_hev", "TUN bridge not available on this device", null)
                             return@setMethodCallHandler
                         }
-                        val intent = Intent(this, GreyVpnService::class.java).apply {
-                            action = GreyVpnService.ACTION_START
-                            putExtra(GreyVpnService.EXTRA_CONFIG, configPath)
-                            putExtra(GreyVpnService.EXTRA_BINARY, binaryPath)
-                            putExtra(GreyVpnService.EXTRA_PROXY_PORT, proxyPort)
-                        }
                         try {
+                            val readyConfig = SingboxHelper.prepareConfig(applicationContext, configPath)
+                            val readyBinary = SingboxHelper.prepareExecutable(applicationContext, binaryPath)
+                            val intent = Intent(this, GreyVpnService::class.java).apply {
+                                action = GreyVpnService.ACTION_START
+                                putExtra(GreyVpnService.EXTRA_CONFIG, readyConfig)
+                                putExtra(GreyVpnService.EXTRA_BINARY, readyBinary)
+                                putExtra(GreyVpnService.EXTRA_PROXY_PORT, proxyPort)
+                            }
                             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                                 startForegroundService(intent)
                             } else {

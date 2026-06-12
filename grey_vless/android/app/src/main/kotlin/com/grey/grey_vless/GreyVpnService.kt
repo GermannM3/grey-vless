@@ -60,10 +60,9 @@ class GreyVpnService : VpnService() {
     }
 
     private fun startVpnTunnel(configPath: String, binaryPath: String, proxyPort: Int) {
-        val executable = SingboxHelper.prepareExecutable(applicationContext, binaryPath)
-
-        singboxProcess = ProcessBuilder(executable, "run", "-c", configPath)
+        singboxProcess = ProcessBuilder(binaryPath, "run", "-c", configPath)
             .redirectErrorStream(true)
+            .directory(File(binaryPath).parentFile)
             .start()
 
         Thread.sleep(900)

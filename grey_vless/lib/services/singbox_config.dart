@@ -44,35 +44,61 @@ class SingboxConfigBuilder {
     if (useTun) {
       inbounds.add(_tunInbound());
     }
-    // Локальный HTTP/SOCKS — всегда (curl -x, системный прокси)
+    // Локальный HTTP/SOCKS — всегда
     inbounds.add(_mixedInbound());
 
     return {
-      'log': {'level': 'warn'},
-      'dns': {
-        'servers': [
-          {'tag': 'remote', 'address': 'tls://8.8.8.8', 'detour': 'proxy'},
-          {'tag': 'local', 'address': '223.5.5.5', 'detour': 'direct'},
-        ],
-        'rules': [
-          {'outbound': 'any', 'server': 'remote'},
-        ],
-        'final': 'remote',
-        'strategy': 'prefer_ipv4',
-      },
+      'log': {'level': Platform.isAndroid ? 'info' : 'warn'},
+      'dns': _dnsBlock(),
       'inbounds': inbounds,
       'outbounds': [
         _outbound(server),
         {'type': 'direct', 'tag': 'direct'},
         {'type': 'block', 'tag': 'block'},
       ],
-      'route': {
-        'auto_detect_interface': true,
+      'route': _routeBlock(),
+    };
+  }
+
+  static Map<String, dynamic> _routeBlock() {
+    if (Platform.isAndroid) {
+      return {
         'rules': [
           {'protocol': 'dns', 'action': 'hijack-dns'},
         ],
         'final': 'proxy',
-      },
+      };
+    }
+    return {
+      'auto_detect_interface': true,
+      'rules': [
+        {'protocol': 'dns', 'action': 'hijack-dns'},
+      ],
+      'final': 'proxy',
+    };
+  }
+
+  static Map<String, dynamic> _dnsBlock() {
+    if (Platform.isAndroid) {
+      return {
+        'servers': [
+          {'tag': 'local', 'address': '223.5.5.5', 'detour': 'direct'},
+          {'tag': 'remote', 'address': '8.8.8.8', 'detour': 'proxy'},
+        ],
+        'final': 'remote',
+        'strategy': 'prefer_ipv4',
+      };
+    }
+    return {
+      'servers': [
+        {'tag': 'remote', 'address': 'tls://8.8.8.8', 'detour': 'proxy'},
+        {'tag': 'local', 'address': '223.5.5.5', 'detour': 'direct'},
+      ],
+      'rules': [
+        {'outbound': 'any', 'server': 'remote'},
+      ],
+      'final': 'remote',
+      'strategy': 'prefer_ipv4',
     };
   }
 

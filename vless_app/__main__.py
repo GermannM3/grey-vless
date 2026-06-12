@@ -28,6 +28,43 @@ class MainWindow(Gtk.ApplicationWindow):
 
         self._build_ui()
         self.connect("delete-event", self._on_close)
+        self._restore_saved()
+
+    def _restore_saved(self) -> None:
+        if self.settings.subscription_url:
+            self.source_entry.set_text(self.settings.subscription_url)
+        if self.settings.servers:
+            self.servers = [
+                Server(
+                    name=s.get("name", "Server"),
+                    protocol=s.get("protocol", "vless"),
+                    host=s.get("host", ""),
+                    port=int(s.get("port", 443)),
+                    raw_link=s.get("raw_link", ""),
+                    params=s.get("params") or {},
+                )
+                for s in self.settings.servers
+            ]
+            self._refresh_list()
+            self._set_status(f"Загружено серверов: {len(self.servers)}")
+
+    def _persist_settings(self) -> None:
+        self.settings.subscription_url = self.source_entry.get_text().strip()
+        self.settings.tun_mode = self.tun_check.get_active()
+        self.settings.auto_connect = self.auto_connect_check.get_active()
+        self.settings.minimize_to_tray = self.tray_check.get_active()
+        self.settings.servers = [
+            {
+                "name": s.name,
+                "protocol": s.protocol,
+                "host": s.host,
+                "port": s.port,
+                "raw_link": s.raw_link,
+                "params": s.params,
+            }
+            for s in self.servers
+        ]
+        self.settings.save()
 
     def set_tray(self, tray: TrayIcon) -> None:
         self.tray = tray
@@ -132,6 +169,7 @@ class MainWindow(Gtk.ApplicationWindow):
 
     def _on_tun_toggled(self, check: Gtk.CheckButton) -> None:
         self.settings.tun_mode = check.get_active()
+        self._persist_settings()
 
     def _set_status(self, text: str) -> None:
         GLib.idle_add(self.status.set_text, text)
@@ -207,6 +245,7 @@ class MainWindow(Gtk.ApplicationWindow):
                 self._refresh_list()
                 self._set_status(f"Найдено серверов: {len(servers)}")
                 self._set_busy(False)
+                self._persist_settings()
                 if self.auto_connect_check.get_active():
                     self._connect_fastest()
 
@@ -321,6 +360,7 @@ class GreyVlessApp(Gtk.Application):
     def __init__(self):
         super().__init__(application_id=APP_ID)
         self.settings = AppSettings()
+        self.settings.load()
         self.connection = ConnectionManager(self.settings)
         self.window: MainWindow | None = None
         self.tray: TrayIcon | None = None

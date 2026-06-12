@@ -98,15 +98,20 @@ class SingboxRunner {
     _logPath = p.join(tempDir.path, 'grey-vless-${DateTime.now().millisecondsSinceEpoch}.log');
     await File(_configPath!).writeAsString(const JsonEncoder.withIndent('  ').convert(config));
 
+    var binaryPath = binary;
+    var configPath = _configPath!;
+
     if (Platform.isAndroid) {
-      final check = await AndroidNative.singboxCheck(binaryPath: binary, configPath: _configPath!);
+      configPath = await AndroidNative.prepareSingboxConfig(_configPath!);
+      _configPath = configPath;
+      final check = await AndroidNative.singboxCheck(binaryPath: binaryPath, configPath: configPath);
       if (check.exitCode != 0) {
         throw Exception(
           'Конфиг sing-box невалиден: ${check.output.isEmpty ? "проверьте сервер" : check.output}',
         );
       }
     } else {
-      final check = await Process.run(binary, ['check', '-c', _configPath!]);
+      final check = await Process.run(binary, ['check', '-c', configPath]);
       if (check.exitCode != 0) {
         final err = '${check.stderr}${check.stdout}'.trim();
         throw Exception('Конфиг sing-box невалиден: ${err.isEmpty ? "проверьте сервер" : err}');
@@ -115,8 +120,8 @@ class SingboxRunner {
 
     if (Platform.isAndroid && tunMode) {
       await AndroidNative.startVpn(
-        configPath: _configPath!,
-        binaryPath: binary,
+        configPath: configPath,
+        binaryPath: binaryPath,
         proxyPort: SingboxConfigBuilder.localPort,
       );
       _androidVpn = true;
@@ -128,28 +133,34 @@ class SingboxRunner {
     }
 
     if (Platform.isAndroid) {
-      await AndroidNative.singboxStart(binaryPath: binary, configPath: _configPath!);
+      await AndroidNative.singboxStart(binaryPath: binaryPath, configPath: configPath);
       _androidProxy = true;
       for (var i = 0; i < 25; i++) {
         await Future.delayed(const Duration(milliseconds: 150));
         if (!await AndroidNative.singboxIsRunning()) {
-          throw Exception('sing-box завершился на Android');
+          final log = await AndroidNative.singboxLastLog();
+          throw Exception(
+            log.isEmpty ? 'sing-box завершился на Android' : log,
+          );
         }
         if (await _portOpen()) {
           _alive = true;
           return;
         }
       }
+      final log = await AndroidNative.singboxLastLog();
       await stop();
       throw Exception(
-        'Порт 127.0.0.1:${SingboxConfigBuilder.localPort} не открылся. sing-box не слушает прокси.',
+        log.isEmpty
+            ? 'Порт 127.0.0.1:${SingboxConfigBuilder.localPort} не открылся. sing-box не слушает прокси.'
+            : log,
       );
     }
 
     try {
       _process = await Process.start(
         binary,
-        ['run', '-c', _configPath!],
+        ['run', '-c', configPath],
         mode: ProcessStartMode.normal,
         runInShell: false,
       );

@@ -17,6 +17,18 @@ class AndroidNative {
     return path;
   }
 
+  static Future<String> prepareSingboxConfig(String sourcePath) async {
+    final path = await _channel.invokeMethod<String>('prepareSingboxConfig', {'path': sourcePath});
+    if (path == null || path.isEmpty) {
+      throw Exception('Не удалось подготовить конфиг sing-box');
+    }
+    return path;
+  }
+
+  static Future<String> singboxLastLog() async {
+    return await _channel.invokeMethod<String>('singboxLastLog') ?? '';
+  }
+
   static Future<bool> chmodExecutable(String path) async {
     final ok = await _channel.invokeMethod<bool>('chmodExecutable', {'path': path});
     return ok ?? false;

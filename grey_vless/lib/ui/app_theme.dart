@@ -1,73 +1,68 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
-/// Мягкая светлая тема — ближе к GTK Adwaita, без резкого чёрного фона.
 class AppTheme {
-  static const _surface = Color(0xFFF4F5F7);
-  static const _card = Color(0xFFFFFFFF);
-  static const _primary = Color(0xFF4A6FA5);
-  static const _text = Color(0xFF2C3338);
-  static const _muted = Color(0xFF6B7280);
+  static const bgTop = Color(0xFF0B1B3A);
+  static const bgBottom = Color(0xFF1A1033);
+  static const card = Color(0xFF162544);
+  static const cardLight = Color(0xFF1E3158);
+  static const accent = Color(0xFF3B82F6);
+  static const accentGlow = Color(0xFF60A5FA);
+  static const textPrimary = Color(0xFFF1F5F9);
+  static const textMuted = Color(0xFF94A3B8);
+  static const divider = Color(0xFF2A3F66);
 
-  static ThemeData light() {
-    final base = ColorScheme.fromSeed(
-      seedColor: _primary,
-      brightness: Brightness.light,
-      surface: _surface,
+  static ThemeData dark() {
+    final scheme = ColorScheme.dark(
+      primary: accent,
+      onPrimary: Colors.white,
+      surface: card,
+      onSurface: textPrimary,
+      secondary: accentGlow,
     );
     return ThemeData(
       useMaterial3: true,
-      brightness: Brightness.light,
-      colorScheme: base.copyWith(
-        primary: _primary,
-        onPrimary: Colors.white,
-        surface: _surface,
-        onSurface: _text,
-      ),
-      scaffoldBackgroundColor: _surface,
+      brightness: Brightness.dark,
+      colorScheme: scheme,
+      scaffoldBackgroundColor: bgBottom,
       appBarTheme: const AppBarTheme(
-        backgroundColor: _card,
-        foregroundColor: _text,
-        elevation: 0.5,
-        centerTitle: false,
-        titleTextStyle: TextStyle(
-          color: _text,
-          fontSize: 18,
-          fontWeight: FontWeight.w600,
-        ),
+        backgroundColor: Colors.transparent,
+        foregroundColor: textPrimary,
+        elevation: 0,
+        centerTitle: true,
+        systemOverlayStyle: SystemUiOverlayStyle.light,
       ),
       cardTheme: CardThemeData(
-        color: _card,
-        elevation: 1,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        color: card,
+        elevation: 0,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       ),
-      inputDecorationTheme: InputDecorationTheme(
-        filled: true,
-        fillColor: _card,
-        hintStyle: const TextStyle(color: _muted),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
-          borderSide: const BorderSide(color: Color(0xFFD1D5DB)),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
-          borderSide: const BorderSide(color: Color(0xFFD1D5DB)),
-        ),
+      dividerColor: divider,
+      snackBarTheme: SnackBarThemeData(
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: cardLight,
+        contentTextStyle: const TextStyle(color: textPrimary),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
-      filledButtonTheme: FilledButtonThemeData(
-        style: FilledButton.styleFrom(
-          backgroundColor: _primary,
-          foregroundColor: Colors.white,
+      bottomSheetTheme: const BottomSheetThemeData(
+        backgroundColor: card,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
         ),
-      ),
-      chipTheme: const ChipThemeData(
-        backgroundColor: _card,
-        selectedColor: Color(0xFFDCE6F5),
-        labelStyle: TextStyle(color: _text),
       ),
     );
   }
 
-  static Color get statusOk => const Color(0xFF2E7D4A);
-  static Color get statusOff => _muted;
-  static Color get hint => _muted;
+  static BoxDecoration get screenGradient => const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [bgTop, bgBottom],
+        ),
+      );
+
+  static Color get statusOk => const Color(0xFF4ADE80);
+  static Color get statusOff => textMuted;
+  static Color get statusWarn => const Color(0xFFFBBF24);
+  static Color get hint => textMuted;
 }
