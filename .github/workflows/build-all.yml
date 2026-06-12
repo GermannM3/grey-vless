@@ -165,7 +165,7 @@ jobs:
           storePassword=GreyVlessReleaseKey
           keyPassword=GreyVlessReleaseKey
           keyAlias=grey-vless
-          storeFile=keystore/grey-vless-release.jks
+          storeFile=../keystore/grey-vless-release.jks
           EOF
       - name: Build hev native lib
         run: |
