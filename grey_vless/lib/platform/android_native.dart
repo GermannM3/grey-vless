@@ -8,8 +8,53 @@ class AndroidNative {
     return ok ?? false;
   }
 
+  /// Копирует sing-box в codeCacheDir и делает исполняемым (Xiaomi/Samsung).
+  static Future<String> prepareSingboxBinary(String sourcePath) async {
+    final path = await _channel.invokeMethod<String>('prepareSingboxBinary', {'path': sourcePath});
+    if (path == null || path.isEmpty) {
+      throw Exception('Не удалось подготовить sing-box');
+    }
+    return path;
+  }
+
   static Future<bool> chmodExecutable(String path) async {
     final ok = await _channel.invokeMethod<bool>('chmodExecutable', {'path': path});
+    return ok ?? false;
+  }
+
+  static Future<({int exitCode, String output})> singboxCheck({
+    required String binaryPath,
+    required String configPath,
+  }) async {
+    final map = await _channel.invokeMethod<Map>('singboxCheck', {
+      'binaryPath': binaryPath,
+      'configPath': configPath,
+    });
+    if (map == null) {
+      throw Exception('singbox check failed');
+    }
+    return (
+      exitCode: (map['exitCode'] as num?)?.toInt() ?? 1,
+      output: map['output']?.toString() ?? '',
+    );
+  }
+
+  static Future<void> singboxStart({
+    required String binaryPath,
+    required String configPath,
+  }) async {
+    await _channel.invokeMethod<void>('singboxStart', {
+      'binaryPath': binaryPath,
+      'configPath': configPath,
+    });
+  }
+
+  static Future<void> singboxStop() async {
+    await _channel.invokeMethod<void>('singboxStop');
+  }
+
+  static Future<bool> singboxIsRunning() async {
+    final ok = await _channel.invokeMethod<bool>('singboxIsRunning');
     return ok ?? false;
   }
 

@@ -1,28 +1,8 @@
-tools/flutter/
-tools/flutter.tar.xz
-tools/git-extract/
-tools/build-root/
-tools/jdk-17/
-tools/android-sdk/
-build/
-dist/
-bin/sing-box
-*.deb
-*.AppImage
-Grey-vless*.AppImage
-grey_vless/assets/bin/*
-!grey_vless/assets/bin/.gitkeep
-grey_vless/build/
-grey_vless/.dart_tool/
-grey_vless/.flutter-plugins-dependencies
-grey_vless/linux/flutter/ephemeral/
-grey_vless/windows/flutter/ephemeral/
-grey_vless/macos/Flutter/ephemeral/
-grey_vless/android/.gradle/
-grey_vless/android/local.properties
-grey_vless/android/app/src/main/jniLibs/**/*.so
-grey_vless/android/app/src/main/cpp/hev-include/
-__pycache__/
-*.pyc
-.DS_Store
-*.log
+# Секреты — не коммитить
+.env
+.env.*
+!.env.example
+
+# Hugging Face и прочие токены
+**/secrets/
+*.token

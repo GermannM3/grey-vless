@@ -14,9 +14,10 @@ class SingboxRunner {
   String? _configPath;
   String? _logPath;
   bool _androidVpn = false;
+  bool _androidProxy = false;
   bool _alive = false;
 
-  bool get isRunning => _androidVpn || (_process != null && _alive);
+  bool get isRunning => _androidVpn || _androidProxy || (_process != null && _alive);
 
   Future<bool> _portOpen() async {
     try {
@@ -29,52 +30,41 @@ class SingboxRunner {
     }
   }
 
-  Future<void> _makeExecutable(String path) async {
-    if (Platform.isAndroid) {
-      final ok = await AndroidNative.chmodExecutable(path);
-      if (!ok) {
-        throw Exception(
-          'Не удалось выдать права на запуск sing-box. Переустановите приложение.',
-        );
-      }
-      return;
-    }
-    if (!Platform.isWindows) {
-      final result = await Process.run('chmod', ['+x', path]);
-      if (result.exitCode != 0) {
-        throw Exception('chmod не сработал для sing-box');
-      }
-    }
-  }
-
   Future<String> _resolveBinary() async {
     final dir = await getApplicationSupportDirectory();
     final out = File(p.join(dir.path, Platform.isWindows ? 'sing-box.exe' : 'sing-box'));
 
-    if (await out.exists()) {
-      await _makeExecutable(out.path);
-      return out.path;
+    if (!await out.exists()) {
+      final String asset;
+      if (Platform.isAndroid) {
+        asset = 'assets/bin/sing-box-android-arm64';
+      } else if (Platform.isWindows) {
+        asset = 'assets/bin/sing-box-windows-amd64.exe';
+      } else if (Platform.isMacOS) {
+        final uname = await Process.run('uname', ['-m']);
+        final arch = (uname.stdout as String).trim();
+        asset = arch == 'arm64' ? 'assets/bin/sing-box-darwin-arm64' : 'assets/bin/sing-box-darwin-amd64';
+      } else {
+        asset = 'assets/bin/sing-box-linux-amd64';
+      }
+
+      final data = await rootBundle.load(asset);
+      await out.writeAsBytes(
+        data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
+        flush: true,
+      );
     }
 
-    final String asset;
     if (Platform.isAndroid) {
-      asset = 'assets/bin/sing-box-android-arm64';
-    } else if (Platform.isWindows) {
-      asset = 'assets/bin/sing-box-windows-amd64.exe';
-    } else if (Platform.isMacOS) {
-      final uname = await Process.run('uname', ['-m']);
-      final arch = (uname.stdout as String).trim();
-      asset = arch == 'arm64' ? 'assets/bin/sing-box-darwin-arm64' : 'assets/bin/sing-box-darwin-amd64';
-    } else {
-      asset = 'assets/bin/sing-box-linux-amd64';
+      return AndroidNative.prepareSingboxBinary(out.path);
     }
 
-    final data = await rootBundle.load(asset);
-    await out.writeAsBytes(
-      data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
-      flush: true,
-    );
-    await _makeExecutable(out.path);
+    if (!Platform.isWindows) {
+      final result = await Process.run('chmod', ['+x', out.path]);
+      if (result.exitCode != 0) {
+        throw Exception('chmod не сработал для sing-box');
+      }
+    }
     return out.path;
   }
 
@@ -108,10 +98,19 @@ class SingboxRunner {
     _logPath = p.join(tempDir.path, 'grey-vless-${DateTime.now().millisecondsSinceEpoch}.log');
     await File(_configPath!).writeAsString(const JsonEncoder.withIndent('  ').convert(config));
 
-    final check = await Process.run(binary, ['check', '-c', _configPath!]);
-    if (check.exitCode != 0) {
-      final err = '${check.stderr}${check.stdout}'.trim();
-      throw Exception('Конфиг sing-box невалиден: ${err.isEmpty ? "проверьте сервер" : err}');
+    if (Platform.isAndroid) {
+      final check = await AndroidNative.singboxCheck(binaryPath: binary, configPath: _configPath!);
+      if (check.exitCode != 0) {
+        throw Exception(
+          'Конфиг sing-box невалиден: ${check.output.isEmpty ? "проверьте сервер" : check.output}',
+        );
+      }
+    } else {
+      final check = await Process.run(binary, ['check', '-c', _configPath!]);
+      if (check.exitCode != 0) {
+        final err = '${check.stderr}${check.stdout}'.trim();
+        throw Exception('Конфиг sing-box невалиден: ${err.isEmpty ? "проверьте сервер" : err}');
+      }
     }
 
     if (Platform.isAndroid && tunMode) {
@@ -126,6 +125,25 @@ class SingboxRunner {
         throw Exception('VPN запущен, но прокси 127.0.0.1:${SingboxConfigBuilder.localPort} недоступен');
       }
       return;
+    }
+
+    if (Platform.isAndroid) {
+      await AndroidNative.singboxStart(binaryPath: binary, configPath: _configPath!);
+      _androidProxy = true;
+      for (var i = 0; i < 25; i++) {
+        await Future.delayed(const Duration(milliseconds: 150));
+        if (!await AndroidNative.singboxIsRunning()) {
+          throw Exception('sing-box завершился на Android');
+        }
+        if (await _portOpen()) {
+          _alive = true;
+          return;
+        }
+      }
+      await stop();
+      throw Exception(
+        'Порт 127.0.0.1:${SingboxConfigBuilder.localPort} не открылся. sing-box не слушает прокси.',
+      );
     }
 
     try {
@@ -177,6 +195,10 @@ class SingboxRunner {
 
   Future<void> stop() async {
     _alive = false;
+    if (_androidProxy) {
+      await AndroidNative.singboxStop();
+      _androidProxy = false;
+    }
     if (_androidVpn) {
       await AndroidNative.stopVpn();
       _androidVpn = false;

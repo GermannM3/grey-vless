@@ -30,16 +30,66 @@ class MainActivity : FlutterActivity() {
             .setMethodCallHandler { call, result ->
                 when (call.method) {
                     "isHevAvailable" -> result.success(HevBridge.isAvailable())
+                    "prepareSingboxBinary" -> {
+                        val path = call.argument<String>("path")
+                        if (path.isNullOrBlank()) {
+                            result.error("invalid_path", "Path is empty", null)
+                            return@setMethodCallHandler
+                        }
+                        try {
+                            val ready = SingboxHelper.prepareExecutable(applicationContext, path)
+                            result.success(ready)
+                        } catch (e: Exception) {
+                            result.error("prepare_failed", e.message, null)
+                        }
+                    }
                     "chmodExecutable" -> {
                         val path = call.argument<String>("path")
                         if (path.isNullOrBlank()) {
                             result.error("invalid_path", "Path is empty", null)
                             return@setMethodCallHandler
                         }
-                        val file = File(path)
-                        val ok = file.exists() && file.setReadable(true, false) && file.setExecutable(true, false)
-                        result.success(ok && file.canExecute())
+                        try {
+                            val ready = SingboxHelper.prepareExecutable(applicationContext, path)
+                            result.success(true)
+                        } catch (_: Exception) {
+                            val file = File(path)
+                            val ok = file.exists() && file.setReadable(true, false) && file.setExecutable(true, false)
+                            result.success(ok && file.canExecute())
+                        }
                     }
+                    "singboxCheck" -> {
+                        val binaryPath = call.argument<String>("binaryPath")
+                        val configPath = call.argument<String>("configPath")
+                        if (binaryPath.isNullOrBlank() || configPath.isNullOrBlank()) {
+                            result.error("invalid_args", "binaryPath/configPath required", null)
+                            return@setMethodCallHandler
+                        }
+                        try {
+                            result.success(SingboxHelper.check(binaryPath, configPath))
+                        } catch (e: Exception) {
+                            result.error("check_failed", e.message, null)
+                        }
+                    }
+                    "singboxStart" -> {
+                        val binaryPath = call.argument<String>("binaryPath")
+                        val configPath = call.argument<String>("configPath")
+                        if (binaryPath.isNullOrBlank() || configPath.isNullOrBlank()) {
+                            result.error("invalid_args", "binaryPath/configPath required", null)
+                            return@setMethodCallHandler
+                        }
+                        try {
+                            SingboxHelper.startProxy(binaryPath, configPath)
+                            result.success(true)
+                        } catch (e: Exception) {
+                            result.error("start_failed", e.message, null)
+                        }
+                    }
+                    "singboxStop" -> {
+                        SingboxHelper.stopProxy()
+                        result.success(true)
+                    }
+                    "singboxIsRunning" -> result.success(SingboxHelper.isProxyRunning())
                     "prepareVpn" -> {
                         val intent = VpnService.prepare(this)
                         if (intent != null) {
@@ -93,6 +143,11 @@ class MainActivity : FlutterActivity() {
                     else -> result.notImplemented()
                 }
             }
+    }
+
+    override fun onDestroy() {
+        SingboxHelper.stopProxy()
+        super.onDestroy()
     }
 
     companion object {
