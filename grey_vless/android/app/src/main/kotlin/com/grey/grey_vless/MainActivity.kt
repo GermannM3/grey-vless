@@ -32,13 +32,8 @@ class MainActivity : FlutterActivity() {
                 when (call.method) {
                     "isHevAvailable" -> result.success(HevBridge.isAvailable())
                     "prepareSingboxBinary" -> {
-                        val path = call.argument<String>("path")
-                        if (path.isNullOrBlank()) {
-                            result.error("invalid_path", "Path is empty", null)
-                            return@setMethodCallHandler
-                        }
                         try {
-                            val ready = SingboxHelper.prepareExecutable(applicationContext, path)
+                            val ready = SingboxHelper.resolveBinary(applicationContext)
                             result.success(ready)
                         } catch (e: Exception) {
                             result.error("prepare_failed", e.message, null)
@@ -80,7 +75,7 @@ class MainActivity : FlutterActivity() {
                             return@setMethodCallHandler
                         }
                         try {
-                            result.success(SingboxHelper.check(binaryPath, configPath))
+                            result.success(SingboxHelper.check(applicationContext, binaryPath, configPath))
                         } catch (e: Exception) {
                             result.error("check_failed", e.message, null)
                         }
@@ -94,7 +89,7 @@ class MainActivity : FlutterActivity() {
                         }
                         try {
                             val readyConfig = SingboxHelper.prepareConfig(applicationContext, configPath)
-                            val readyBinary = SingboxHelper.prepareExecutable(applicationContext, binaryPath)
+                            val readyBinary = SingboxHelper.resolveBinary(applicationContext)
                             SingboxHelper.startProxy(applicationContext, readyBinary, readyConfig)
                             result.success(true)
                         } catch (e: Exception) {

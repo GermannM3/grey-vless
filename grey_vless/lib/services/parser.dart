@@ -3,6 +3,22 @@ import 'dart:convert';
 import '../models/server.dart';
 
 class LinkParser {
+  static String _displayName(Uri uri, String protocol, Map<String, String> params) {
+    if (uri.fragment.isNotEmpty) {
+      return Uri.decodeComponent(uri.fragment);
+    }
+    for (final key in ['remarks', 'remark', 'name', 'ps']) {
+      final value = params[key];
+      if (value != null && value.trim().isNotEmpty) {
+        return Uri.decodeComponent(value.trim());
+      }
+    }
+    if (uri.host.isNotEmpty) {
+      return uri.host;
+    }
+    return protocol.toUpperCase();
+  }
+
   static VpnServer parse(String link) {
     final trimmed = link.trim();
     final lower = trimmed.toLowerCase();
@@ -16,7 +32,7 @@ class LinkParser {
   static VpnServer _parseUri(String link, String protocol) {
     final uri = Uri.parse(link);
     final params = uri.queryParameters;
-    final name = Uri.decodeComponent(uri.fragment.isEmpty ? protocol.toUpperCase() : uri.fragment);
+    final name = _displayName(uri, protocol, params);
     final password = uri.userInfo.split(':').first;
     return VpnServer(
       name: name,

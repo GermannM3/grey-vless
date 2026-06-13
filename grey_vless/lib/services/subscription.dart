@@ -8,7 +8,7 @@ import 'parser.dart';
 
 class SubscriptionService {
   static final _linkPattern = RegExp(
-    r'(vless|vmess|trojan|ss)://[^\s#"<>]+',
+    r'(vless|vmess|trojan|ss)://[^\s"<>]+(?:#[^\s"<>]*)?',
     caseSensitive: false,
   );
 

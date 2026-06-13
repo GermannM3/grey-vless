@@ -31,14 +31,16 @@ class SingboxRunner {
   }
 
   Future<String> _resolveBinary() async {
+    if (Platform.isAndroid) {
+      return AndroidNative.prepareSingboxBinary('');
+    }
+
     final dir = await getApplicationSupportDirectory();
     final out = File(p.join(dir.path, Platform.isWindows ? 'sing-box.exe' : 'sing-box'));
 
     if (!await out.exists()) {
       final String asset;
-      if (Platform.isAndroid) {
-        asset = 'assets/bin/sing-box-android-arm64';
-      } else if (Platform.isWindows) {
+      if (Platform.isWindows) {
         asset = 'assets/bin/sing-box-windows-amd64.exe';
       } else if (Platform.isMacOS) {
         final uname = await Process.run('uname', ['-m']);
@@ -53,10 +55,6 @@ class SingboxRunner {
         data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
         flush: true,
       );
-    }
-
-    if (Platform.isAndroid) {
-      return AndroidNative.prepareSingboxBinary(out.path);
     }
 
     if (!Platform.isWindows) {

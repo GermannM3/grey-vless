@@ -161,43 +161,66 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  void _showSettings(AppState state) {
+  void _showSettings() {
     showModalBottomSheet<void>(
       context: context,
-      builder: (ctx) => Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text('Настройки', style: Theme.of(ctx).textTheme.titleLarge),
-            const SizedBox(height: 12),
-            SwitchListTile(
-              title: Text(Platform.isAndroid ? 'TUN — полный VPN' : 'TUN (полный VPN)'),
-              subtitle: Text(
-                Platform.isAndroid
-                    ? 'Весь трафик через VPN. Без TUN — только проверка серверов.'
-                    : 'Весь трафик через VPN',
-                style: const TextStyle(fontSize: 12, color: AppTheme.textMuted),
+      isScrollControlled: true,
+      backgroundColor: AppTheme.card,
+      builder: (ctx) => Consumer<AppState>(
+        builder: (ctx, state, _) {
+          final bottom = MediaQuery.of(ctx).padding.bottom + 16;
+          return SingleChildScrollView(
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(20, 12, 20, bottom),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      margin: const EdgeInsets.only(bottom: 16),
+                      decoration: BoxDecoration(
+                        color: AppTheme.divider,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  Text('Настройки', style: Theme.of(ctx).textTheme.titleLarge),
+                  const SizedBox(height: 8),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(Platform.isAndroid ? 'TUN — полный VPN' : 'TUN (полный VPN)'),
+                    subtitle: Text(
+                      Platform.isAndroid
+                          ? 'Весь трафик через VPN. Без TUN — только проверка серверов.'
+                          : 'Весь трафик через VPN',
+                      style: const TextStyle(fontSize: 12, color: AppTheme.textMuted),
+                    ),
+                    value: state.tunMode,
+                    onChanged: _busy ? null : (v) => state.setTunMode(v),
+                  ),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Автоподключение к самому быстрому'),
+                    value: state.autoConnect,
+                    onChanged: _busy ? null : (v) => state.setAutoConnect(v),
+                  ),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.system_update),
+                    title: const Text('Проверить обновления'),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _checkForUpdates();
+                    },
+                  ),
+                ],
               ),
-              value: state.tunMode,
-              onChanged: _busy ? null : (v) => state.setTunMode(v),
             ),
-            SwitchListTile(
-              title: const Text('Автоподключение к самому быстрому'),
-              value: state.autoConnect,
-              onChanged: _busy ? null : (v) => state.setAutoConnect(v),
-            ),
-            ListTile(
-              leading: const Icon(Icons.system_update),
-              title: const Text('Проверить обновления'),
-              onTap: () {
-                Navigator.pop(ctx);
-                _checkForUpdates();
-              },
-            ),
-          ],
-        ),
+          );
+        },
       ),
     );
   }
@@ -270,7 +293,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   children: [
                     IconButton(
                       tooltip: 'Настройки',
-                      onPressed: () => _showSettings(state),
+                      onPressed: () => _showSettings(),
                       icon: const Icon(Icons.settings_outlined),
                     ),
                     const Spacer(),
@@ -296,11 +319,34 @@ class _HomeScreenState extends State<HomeScreen> {
                 padding: const EdgeInsets.symmetric(horizontal: 20),
                 child: Row(
                   children: [
-                    Text(
-                      _pinging ? 'Проверка пинга…' : 'Проверка пинга',
-                      style: const TextStyle(color: AppTheme.textMuted, fontSize: 13),
+                    Expanded(
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(8),
+                        onTap: _busy || _pinging || state.servers.isEmpty
+                            ? null
+                            : () => _pingAll(state),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 6),
+                          child: Row(
+                            children: [
+                              if (_pinging)
+                                const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.accent),
+                                )
+                              else
+                                const Icon(Icons.speed, size: 18, color: AppTheme.accent),
+                              const SizedBox(width: 8),
+                              Text(
+                                _pinging ? 'Проверка пинга…' : 'Проверка пинга',
+                                style: const TextStyle(color: AppTheme.textPrimary, fontSize: 13),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
                     ),
-                    const Spacer(),
                     if (state.servers.isNotEmpty)
                       TextButton(
                         onPressed: () => setState(() => _serversHidden = !_serversHidden),
@@ -530,7 +576,7 @@ class _ServerRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final flag = countryFlagFor(server.name);
+    final flag = countryFlagForServer(server);
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Material(

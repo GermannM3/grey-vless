@@ -167,6 +167,10 @@ jobs:
           keyAlias=grey-vless
           storeFile=../keystore/grey-vless-release.jks
           EOF
+      - name: Bundle sing-box for Android (jniLibs)
+        run: |
+          chmod +x scripts/bundle-singbox-android.sh
+          ./scripts/bundle-singbox-android.sh
       - name: Build hev native lib
         run: |
           export ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME"
