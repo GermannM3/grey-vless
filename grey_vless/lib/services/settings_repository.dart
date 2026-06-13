@@ -11,6 +11,8 @@ class SettingsRepository {
   static const _kSelectedIndex = 'selected_index';
   static const _kTunMode = 'tun_mode';
   static const _kAutoConnect = 'auto_connect';
+  static const _kAutoReconnect = 'auto_reconnect';
+  static const _kGreySense = 'grey_sense_enabled';
 
   SharedPreferences? _prefs;
 
@@ -36,9 +38,13 @@ class SettingsRepository {
 
   bool get tunMode => prefs.getBool(_kTunMode) ?? false;
   bool get autoConnect => prefs.getBool(_kAutoConnect) ?? false;
+  bool get autoReconnect => prefs.getBool(_kAutoReconnect) ?? true;
+  bool get greySenseEnabled => prefs.getBool(_kGreySense) ?? true;
 
   Future<void> saveTunMode(bool value) async => prefs.setBool(_kTunMode, value);
   Future<void> saveAutoConnect(bool value) async => prefs.setBool(_kAutoConnect, value);
+  Future<void> saveAutoReconnect(bool value) async => prefs.setBool(_kAutoReconnect, value);
+  Future<void> saveGreySenseEnabled(bool value) async => prefs.setBool(_kGreySense, value);
 
   int? get selectedIndex {
     if (!prefs.containsKey(_kSelectedIndex)) return null;

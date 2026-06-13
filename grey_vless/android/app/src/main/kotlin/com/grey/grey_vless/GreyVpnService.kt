@@ -19,6 +19,36 @@ class GreyVpnService : VpnService() {
     private var hevThread: Thread? = null
     private val stopping = AtomicBoolean(false)
 
+    override fun onCreate() {
+        super.onCreate()
+        active = this
+    }
+
+    override fun onDestroy() {
+        active = null
+        stopTunnel()
+        super.onDestroy()
+    }
+
+    companion object {
+        private const val TAG = "GreyVpnService"
+        const val ACTION_START = "com.grey.grey_vless.vpn.START"
+        const val ACTION_STOP = "com.grey.grey_vless.vpn.STOP"
+        const val EXTRA_CONFIG = "config"
+        const val EXTRA_BINARY = "binary"
+        const val EXTRA_PROXY_PORT = "proxy_port"
+        private const val NOTIF_ID = 42
+        private const val CHANNEL_ID = "grey_vless_vpn"
+
+        @Volatile
+        private var active: GreyVpnService? = null
+
+        fun isActive(): Boolean {
+            val svc = active ?: return false
+            return svc.tunInterface != null && svc.singboxProcess?.isAlive == true
+        }
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> {
@@ -170,21 +200,5 @@ class GreyVpnService : VpnService() {
         stopping.set(false)
     }
 
-    override fun onDestroy() {
-        stopTunnel()
-        super.onDestroy()
-    }
-
     override fun onBind(intent: Intent?): IBinder? = null
-
-    companion object {
-        private const val TAG = "GreyVpnService"
-        const val ACTION_START = "com.grey.grey_vless.vpn.START"
-        const val ACTION_STOP = "com.grey.grey_vless.vpn.STOP"
-        const val EXTRA_CONFIG = "config"
-        const val EXTRA_BINARY = "binary"
-        const val EXTRA_PROXY_PORT = "proxy_port"
-        private const val NOTIF_ID = 42
-        private const val CHANNEL_ID = "grey_vless_vpn"
-    }
 }

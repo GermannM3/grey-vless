@@ -52,7 +52,7 @@ class SingboxConfigBuilder {
       'dns': _dnsBlock(),
       'inbounds': inbounds,
       'outbounds': [
-        _outbound(server),
+        _withDialer(_outbound(server)),
         {'type': 'direct', 'tag': 'direct'},
         {'type': 'block', 'tag': 'block'},
       ],
@@ -100,6 +100,15 @@ class SingboxConfigBuilder {
       'final': 'remote',
       'strategy': 'prefer_ipv4',
     };
+  }
+
+  static Map<String, dynamic> _withDialer(Map<String, dynamic> outbound) {
+    outbound['dialer_options'] = {
+      'tcp_keep_alive': '30s',
+      'tcp_keep_alive_interval': '15s',
+      'connect_timeout': '20s',
+    };
+    return outbound;
   }
 
   static Map<String, dynamic> _outbound(VpnServer server) {

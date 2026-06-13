@@ -2,18 +2,22 @@ import 'package:flutter/foundation.dart';
 
 import '../models/server.dart';
 import '../services/connection_service.dart';
+import '../services/grey_sense_service.dart';
 import '../services/settings_repository.dart';
 
 class AppState extends ChangeNotifier {
-  AppState(this.connection, this._settings);
+  AppState(this.connection, this._settings, this.greySense);
 
   final ConnectionService connection;
   final SettingsRepository _settings;
+  final GreySenseService greySense;
 
   List<VpnServer> servers = [];
   int? selectedIndex;
   bool tunMode = false;
   bool autoConnect = false;
+  bool autoReconnect = true;
+  bool greySenseEnabled = true;
   String subscriptionUrl = '';
   String subscriptionName = 'Подписка';
   bool loaded = false;
@@ -23,12 +27,17 @@ class AppState extends ChangeNotifier {
     subscriptionName = _settings.subscriptionName;
     tunMode = _settings.tunMode;
     autoConnect = _settings.autoConnect;
+    autoReconnect = _settings.autoReconnect;
+    greySenseEnabled = _settings.greySenseEnabled;
     servers = _settings.loadServers();
     selectedIndex = _settings.selectedIndex;
     if (selectedIndex != null && selectedIndex! >= servers.length) {
       selectedIndex = servers.isEmpty ? null : 0;
     }
     connection.tunMode = tunMode;
+    connection.autoReconnect = autoReconnect;
+    connection.greySenseEnabled = greySenseEnabled;
+    connection.updateServerList(servers);
     loaded = true;
     notifyListeners();
   }
@@ -42,6 +51,7 @@ class AppState extends ChangeNotifier {
 
   Future<void> setServers(List<VpnServer> value) async {
     servers = value;
+    connection.updateServerList(value);
     await _settings.saveServers(value);
     notifyListeners();
   }
@@ -56,6 +66,20 @@ class AppState extends ChangeNotifier {
     tunMode = value;
     connection.tunMode = value;
     await _settings.saveTunMode(value);
+    notifyListeners();
+  }
+
+  Future<void> setAutoReconnect(bool value) async {
+    autoReconnect = value;
+    connection.autoReconnect = value;
+    await _settings.saveAutoReconnect(value);
+    notifyListeners();
+  }
+
+  Future<void> setGreySenseEnabled(bool value) async {
+    greySenseEnabled = value;
+    connection.greySenseEnabled = value;
+    await _settings.saveGreySenseEnabled(value);
     notifyListeners();
   }
 

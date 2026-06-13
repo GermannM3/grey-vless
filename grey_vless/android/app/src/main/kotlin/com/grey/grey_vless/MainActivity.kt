@@ -101,6 +101,7 @@ class MainActivity : FlutterActivity() {
                         result.success(true)
                     }
                     "singboxIsRunning" -> result.success(SingboxHelper.isProxyRunning())
+                    "isVpnActive" -> result.success(GreyVpnService.isActive())
                     "singboxLastLog" -> result.success(SingboxHelper.getLastLog(applicationContext))
                     "prepareVpn" -> {
                         val intent = VpnService.prepare(this)

@@ -6,6 +6,7 @@ import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'services/connection_service.dart';
+import 'services/grey_sense_service.dart';
 import 'services/settings_repository.dart';
 import 'state/app_state.dart';
 import 'ui/app_theme.dart';
@@ -27,8 +28,10 @@ Future<void> main() async {
 
   final settings = SettingsRepository();
   await settings.init();
-  final connection = ConnectionService();
-  final state = AppState(connection, settings);
+  final greySense = GreySenseService();
+  await greySense.load();
+  final connection = ConnectionService(greySense);
+  final state = AppState(connection, settings, greySense);
   await state.load();
 
   runApp(

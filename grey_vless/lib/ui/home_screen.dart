@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -26,11 +27,37 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _checkingUpdate = false;
   bool _pinging = false;
   bool _serversHidden = false;
+  StreamSubscription<ConnectionEvent>? _connSub;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _checkForUpdates(silent: true));
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkForUpdates(silent: true);
+      final state = context.read<AppState>();
+      _connSub = state.connection.events.listen(_onConnectionEvent);
+    });
+  }
+
+  @override
+  void dispose() {
+    _connSub?.cancel();
+    super.dispose();
+  }
+
+  void _onConnectionEvent(ConnectionEvent event) {
+    if (!mounted) return;
+    setState(() {});
+    switch (event) {
+      case ReconnectingEvent():
+        _snack('Grey Sense: переподключение…', bg: AppTheme.cardLight);
+      case ReconnectedEvent(:final server):
+        _snack('Снова онлайн: ${server.name}', bg: AppTheme.statusOk.withValues(alpha: 0.9));
+        context.read<AppState>().refresh();
+      case ConnectedEvent():
+      case DisconnectedEvent():
+        context.read<AppState>().refresh();
+    }
   }
 
   Future<void> _checkForUpdates({bool silent = false}) async {
@@ -61,7 +88,11 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       await action();
     } catch (e) {
-      if (mounted) _snack(_shortError(e), bg: Colors.red.shade800);
+      if (mounted) {
+        final state = context.read<AppState>();
+        final msg = state.greySense.explainLocally(_shortError(e));
+        _snack(msg, bg: Colors.red.shade800);
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -207,6 +238,36 @@ class _HomeScreenState extends State<HomeScreen> {
                     value: state.autoConnect,
                     onChanged: _busy ? null : (v) => state.setAutoConnect(v),
                   ),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Grey Sense — авто-переподключение'),
+                    subtitle: const Text(
+                      'Следит за туннелем и восстанавливает связь без вашего участия',
+                      style: TextStyle(fontSize: 12, color: AppTheme.textMuted),
+                    ),
+                    value: state.autoReconnect,
+                    onChanged: _busy ? null : (v) => state.setAutoReconnect(v),
+                  ),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Grey Sense — умный выбор сервера'),
+                    subtitle: const Text(
+                      'Учитывает пинг и стабильность, не только скорость',
+                      style: TextStyle(fontSize: 12, color: AppTheme.textMuted),
+                    ),
+                    value: state.greySenseEnabled,
+                    onChanged: _busy ? null : (v) => state.setGreySenseEnabled(v),
+                  ),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.auto_awesome, color: AppTheme.accentGlow),
+                    title: const Text('Grey Sense — советник'),
+                    subtitle: const Text('Локальный AI + опционально Hugging Face'),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _showGreySense(state);
+                    },
+                  ),
                   ListTile(
                     contentPadding: EdgeInsets.zero,
                     leading: const Icon(Icons.system_update),
@@ -237,6 +298,97 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Future<void> _onServerTap(AppState state, int index) async {
+    final conn = state.connection;
+    final server = state.servers[index];
+    if (conn.isConnected) {
+      if (conn.connectedServer == server) return;
+      await _run(() => conn.switchServer(server));
+      await state.setSelectedIndex(index);
+      state.refresh();
+      return;
+    }
+    await state.setSelectedIndex(index);
+  }
+
+  void _showGreySense(AppState state) {
+    final recommended = state.greySense.recommend(state.servers);
+    final hfController = TextEditingController();
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppTheme.card,
+      builder: (ctx) {
+        return Padding(
+          padding: EdgeInsets.fromLTRB(20, 12, 20, MediaQuery.of(ctx).padding.bottom + 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.auto_awesome, color: AppTheme.accentGlow),
+                  const SizedBox(width: 8),
+                  Text('Grey Sense', style: Theme.of(ctx).textTheme.titleLarge),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Text(
+                recommended != null
+                    ? 'Рекомендуем: ${recommended.name}${recommended.pingMs != null ? ' (${recommended.pingMs}мс)' : ''}'
+                    : 'Загрузите подписку для рекомендаций',
+                style: const TextStyle(color: AppTheme.textPrimary),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Локально считаем пинг и историю обрывов. Hugging Face — опционально для текстовых подсказок (токен хранится только на телефоне).',
+                style: TextStyle(fontSize: 12, color: AppTheme.textMuted),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: hfController,
+                obscureText: true,
+                decoration: const InputDecoration(
+                  labelText: 'HF токен (необязательно)',
+                  filled: true,
+                  fillColor: AppTheme.cardLight,
+                  border: OutlineInputBorder(borderSide: BorderSide.none),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  if (recommended != null)
+                    FilledButton(
+                      onPressed: _busy
+                          ? null
+                          : () async {
+                              Navigator.pop(ctx);
+                              await _run(() async {
+                                await state.connection.connect(recommended);
+                                state.refresh();
+                              });
+                            },
+                      child: const Text('Подключить лучший'),
+                    ),
+                  const Spacer(),
+                  TextButton(
+                    onPressed: () async {
+                      await state.greySense.setHfToken(hfController.text);
+                      if (ctx.mounted) Navigator.pop(ctx);
+                      _snack('Токен сохранён локально');
+                    },
+                    child: const Text('Сохранить токен'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   Future<void> _connectServer(AppState state, int index) async {
     await state.setSelectedIndex(index);
     await state.connection.connect(state.servers[index]);
@@ -257,6 +409,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   String _statusText(ConnectionService conn) {
+    if (conn.isReconnecting) return 'Grey Sense: переподключение…';
     if (!conn.isConnected) return 'Не подключено';
     final name = conn.connectedServer?.name ?? '';
     if (conn.isProxyOnly) return 'Прокси: $name';
@@ -269,6 +422,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final state = context.watch<AppState>();
     final conn = state.connection;
     final connected = conn.isConnected;
+    final recommended = state.greySense.recommend(state.servers);
 
     if (!state.loaded) {
       return DecoratedBox(
@@ -297,6 +451,11 @@ class _HomeScreenState extends State<HomeScreen> {
                       icon: const Icon(Icons.settings_outlined),
                     ),
                     const Spacer(),
+                    IconButton(
+                      tooltip: 'Grey Sense',
+                      onPressed: () => _showGreySense(state),
+                      icon: const Icon(Icons.auto_awesome_outlined, color: AppTheme.accentGlow),
+                    ),
                     IconButton(
                       tooltip: 'Добавить подписку',
                       onPressed: () => _showAddSheet(state),
@@ -396,9 +555,9 @@ class _HomeScreenState extends State<HomeScreen> {
                                 server: server,
                                 selected: selected,
                                 connected: isConnected,
+                                recommended: recommended == server,
                                 busy: _busy,
-                                onTap: () => state.setSelectedIndex(index),
-                                onConnect: () => _run(() => _connectServer(state, index)),
+                                onTap: () => _onServerTap(state, index),
                               );
                             },
                           ),
@@ -556,17 +715,17 @@ class _ServerRow extends StatelessWidget {
     required this.server,
     required this.selected,
     required this.connected,
+    required this.recommended,
     required this.busy,
     required this.onTap,
-    required this.onConnect,
   });
 
   final VpnServer server;
   final bool selected;
   final bool connected;
+  final bool recommended;
   final bool busy;
   final VoidCallback onTap;
-  final VoidCallback onConnect;
 
   String _pingText() {
     if (server.pingError != null) return server.pingError!;
@@ -589,7 +748,6 @@ class _ServerRow extends StatelessWidget {
         child: InkWell(
           borderRadius: BorderRadius.circular(14),
           onTap: busy ? null : onTap,
-          onDoubleTap: busy ? null : onConnect,
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             child: Row(
@@ -600,9 +758,30 @@ class _ServerRow extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        server.name,
-                        style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              server.name,
+                              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          if (recommended) ...[
+                            const SizedBox(width: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: AppTheme.accent.withValues(alpha: 0.25),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: const Text(
+                                'AI',
+                                style: TextStyle(fontSize: 10, color: AppTheme.accentGlow),
+                              ),
+                            ),
+                          ],
+                        ],
                       ),
                       const SizedBox(height: 2),
                       Text(

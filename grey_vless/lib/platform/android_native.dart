@@ -70,6 +70,11 @@ class AndroidNative {
     return ok ?? false;
   }
 
+  static Future<bool> isVpnActive() async {
+    final ok = await _channel.invokeMethod<bool>('isVpnActive');
+    return ok ?? false;
+  }
+
   static Future<bool> prepareVpn() async {
     final ok = await _channel.invokeMethod<bool>('prepareVpn');
     return ok ?? false;
