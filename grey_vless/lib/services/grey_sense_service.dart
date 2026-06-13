@@ -148,9 +148,11 @@ class GreySenseService {
 }
 
 class _ServerStats {
-  int successes = 0;
-  int failures = 0;
-  int lastOk = 0;
+  _ServerStats({this.successes = 0, this.failures = 0, this.lastOk = 0});
+
+  int successes;
+  int failures;
+  int lastOk;
 
   Map<String, dynamic> toJson() => {
         'successes': successes,
@@ -158,8 +160,9 @@ class _ServerStats {
         'lastOk': lastOk,
       };
 
-  factory _ServerStats.fromJson(Map<String, dynamic> j) => _ServerStats()
-    ..successes = (j['successes'] as num?)?.toInt() ?? 0
-    ..failures = (j['failures'] as num?)?.toInt() ?? 0
-    ..lastOk = (j['lastOk'] as num?)?.toInt() ?? 0;
+  factory _ServerStats.fromJson(Map<String, dynamic> j) => _ServerStats(
+        successes: (j['successes'] as num?)?.toInt() ?? 0,
+        failures: (j['failures'] as num?)?.toInt() ?? 0,
+        lastOk: (j['lastOk'] as num?)?.toInt() ?? 0,
+      );
 }
