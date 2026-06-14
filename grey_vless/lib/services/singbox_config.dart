@@ -52,7 +52,7 @@ class SingboxConfigBuilder {
       'dns': _dnsBlock(),
       'inbounds': inbounds,
       'outbounds': [
-        _withDialer(_outbound(server)),
+        _outbound(server),
         {'type': 'direct', 'tag': 'direct'},
         {'type': 'block', 'tag': 'block'},
       ],
@@ -79,36 +79,15 @@ class SingboxConfigBuilder {
   }
 
   static Map<String, dynamic> _dnsBlock() {
-    if (Platform.isAndroid) {
-      return {
-        'servers': [
-          {'tag': 'local', 'address': '223.5.5.5', 'detour': 'direct'},
-          {'tag': 'remote', 'address': '8.8.8.8', 'detour': 'proxy'},
-        ],
-        'final': 'remote',
-        'strategy': 'prefer_ipv4',
-      };
-    }
+    // DNS через direct — иначе sing-box не может резолвить адрес прокси до поднятия туннеля.
     return {
       'servers': [
-        {'tag': 'remote', 'address': 'tls://8.8.8.8', 'detour': 'proxy'},
-        {'tag': 'local', 'address': '223.5.5.5', 'detour': 'direct'},
+        {'tag': 'google', 'address': '8.8.8.8', 'detour': 'direct'},
+        {'tag': 'cloudflare', 'address': '1.1.1.1', 'detour': 'direct'},
       ],
-      'rules': [
-        {'outbound': 'any', 'server': 'remote'},
-      ],
-      'final': 'remote',
+      'final': 'google',
       'strategy': 'prefer_ipv4',
     };
-  }
-
-  static Map<String, dynamic> _withDialer(Map<String, dynamic> outbound) {
-    outbound['dialer_options'] = {
-      'tcp_keep_alive': '30s',
-      'tcp_keep_alive_interval': '15s',
-      'connect_timeout': '20s',
-    };
-    return outbound;
   }
 
   static Map<String, dynamic> _outbound(VpnServer server) {

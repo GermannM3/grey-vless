@@ -6,6 +6,7 @@ import '../platform/platform_proxy.dart';
 import '../platform/singbox_runner.dart';
 import 'connection_watchdog.dart';
 import 'grey_sense_service.dart';
+import 'parser.dart';
 import 'ping_service.dart';
 import 'singbox_config.dart';
 
@@ -34,25 +35,57 @@ class ConnectionService {
 
   Future<void> connect(VpnServer server, {bool fromWatchdog = false}) async {
     await disconnect(stopWatchdog: false);
+    final resolved = _prepareServer(server);
     try {
-      final config = SingboxConfigBuilder.build(server, tunMode: tunMode);
+      final config = SingboxConfigBuilder.build(resolved, tunMode: tunMode);
       await _runner.start(config, tunMode: tunMode);
       if (!tunMode && !Platform.isAndroid && !Platform.isIOS) {
         try {
           await _proxy.enable(host: '127.0.0.1', port: SingboxConfigBuilder.localPort);
         } catch (_) {}
       }
-      connectedServer = server;
-      await greySense.recordSuccess(server);
-      _watchdog.start(server);
+      connectedServer = resolved;
+      await greySense.recordSuccess(resolved);
+      _watchdog.start(resolved);
       if (fromWatchdog) {
-        _events.add(ConnectionEvent.reconnected(server));
+        _events.add(ConnectionEvent.reconnected(resolved));
       } else {
-        _events.add(ConnectionEvent.connected(server));
+        _events.add(ConnectionEvent.connected(resolved));
       }
     } catch (e) {
-      await greySense.recordFailure(server);
+      await greySense.recordFailure(resolved);
       rethrow;
+    }
+  }
+
+  VpnServer _prepareServer(VpnServer server) {
+    var resolved = server;
+    if (server.rawLink.trim().isNotEmpty) {
+      try {
+        resolved = LinkParser.parse(server.rawLink.trim());
+      } catch (_) {
+        resolved = server;
+      }
+    }
+    _validate(resolved);
+    return resolved;
+  }
+
+  void _validate(VpnServer server) {
+    if (server.host.trim().isEmpty) {
+      throw Exception('Нет адреса сервера. Обновите подписку (кнопка ↻).');
+    }
+    switch (server.protocol) {
+      case 'vless':
+      case 'vmess':
+        if ((server.params['uuid'] ?? '').trim().isEmpty) {
+          throw Exception('Нет UUID в ссылке сервера. Обновите подписку (кнопка ↻).');
+        }
+      case 'trojan':
+      case 'shadowsocks':
+        if ((server.params['password'] ?? '').trim().isEmpty) {
+          throw Exception('Нет пароля в ссылке сервера. Обновите подписку (кнопка ↻).');
+        }
     }
   }
 
