@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 NAME="grey-vless"
-VERSION="0.4.9"
+VERSION="$(grep '^version:' "$ROOT/grey_vless/pubspec.yaml" | awk '{print $2}' | cut -d+ -f1)"
 ARCH="amd64"
 INSTALL_DIR="/opt/grey-vless"
 PKG_DIR="$ROOT/build/deb/${NAME}_${VERSION}_${ARCH}"

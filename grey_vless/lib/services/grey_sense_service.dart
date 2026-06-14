@@ -11,6 +11,18 @@ import 'ping_service.dart';
 class GreySenseService {
   static const _kStats = 'grey_sense_server_stats';
   static const _kHfToken = 'grey_sense_hf_token';
+  static const _kHfModel = 'grey_sense_hf_model';
+
+  static const defaultHfModel = 'google/flan-t5-base';
+
+  /// id модели → подпись в UI
+  static const hfModelPresets = <String, String>{
+    'google/flan-t5-small': 'FLAN-T5 Small — быстрая',
+    'google/flan-t5-base': 'FLAN-T5 Base — сбалансированная',
+    'Qwen/Qwen2.5-0.5B-Instruct': 'Qwen 2.5 0.5B',
+    'microsoft/Phi-3-mini-4k-instruct': 'Phi-3 Mini',
+    'HuggingFaceH4/zephyr-7b-beta': 'Zephyr 7B',
+  };
 
   Map<String, _ServerStats> _stats = {};
 
@@ -104,12 +116,15 @@ class GreySenseService {
   Future<String?> hfHint({
     required String prompt,
     required String? token,
+    String? model,
   }) async {
     if (token == null || token.trim().isEmpty) return null;
+    final modelId = (model ?? defaultHfModel).trim();
+    if (modelId.isEmpty) return null;
     try {
       final response = await http
           .post(
-            Uri.parse('https://router.huggingface.co/hf-inference/models/google/flan-t5-base'),
+            Uri.parse('https://router.huggingface.co/hf-inference/models/$modelId'),
             headers: {
               'Authorization': 'Bearer ${token.trim()}',
               'Content-Type': 'application/json',
@@ -137,6 +152,11 @@ class GreySenseService {
     return prefs.getString(_kHfToken);
   }
 
+  Future<String> getHfModel() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_kHfModel) ?? defaultHfModel;
+  }
+
   Future<void> setHfToken(String? token) async {
     final prefs = await SharedPreferences.getInstance();
     if (token == null || token.trim().isEmpty) {
@@ -144,6 +164,21 @@ class GreySenseService {
     } else {
       await prefs.setString(_kHfToken, token.trim());
     }
+  }
+
+  Future<void> setHfModel(String? model) async {
+    final prefs = await SharedPreferences.getInstance();
+    final value = model?.trim() ?? '';
+    if (value.isEmpty) {
+      await prefs.remove(_kHfModel);
+    } else {
+      await prefs.setString(_kHfModel, value);
+    }
+  }
+
+  Future<void> setHfConfig({String? token, String? model}) async {
+    if (token != null) await setHfToken(token);
+    if (model != null) await setHfModel(model);
   }
 }
 

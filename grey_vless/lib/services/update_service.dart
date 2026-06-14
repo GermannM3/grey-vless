@@ -114,8 +114,18 @@ class UpdateService {
       final arch = r.stdout.toString().trim();
       return arch == 'arm64' ? 'Grey-vless-macos-arm64.dmg' : 'Grey-vless-macos-x86_64.dmg';
     }
-    if (Platform.isLinux) return 'Grey-vless-linux-x64.zip';
+    if (Platform.isLinux) {
+      if (_runningAsAppImage()) {
+        return 'Grey-vless-flutter-x86_64.AppImage';
+      }
+      return 'Grey-vless-linux-x64.zip';
+    }
     return null;
+  }
+
+  static bool _runningAsAppImage() {
+    if (Platform.environment.containsKey('APPIMAGE')) return true;
+    return Platform.resolvedExecutable.contains('AppImage');
   }
 
   static Future<String> _downloadFile(String url, String fileName, void Function(double)? onProgress) async {
@@ -160,6 +170,12 @@ class UpdateService {
       return;
     }
 
+    if (Platform.isLinux && info.assetName.endsWith('.AppImage')) {
+      final path = await _downloadFile(info.downloadUrl, info.assetName, onProgress);
+      await _applyAppImageUpdate(path, info.assetName);
+      return;
+    }
+
     if ((Platform.isWindows || Platform.isLinux) && info.assetName.endsWith('.zip')) {
       final zipPath = await _downloadFile(info.downloadUrl, info.assetName, onProgress);
       await _applyZipUpdate(zipPath);
@@ -170,6 +186,16 @@ class UpdateService {
       Platform.isWindows ? 'cmd' : 'xdg-open',
       Platform.isWindows ? ['/c', 'start', '', info.releasePage] : [info.releasePage],
     );
+  }
+
+  static Future<void> _applyAppImageUpdate(String downloadedPath, String assetName) async {
+    final appImage = Platform.environment['APPIMAGE'];
+    final targetDir = appImage != null ? p.dirname(appImage) : p.dirname(Platform.resolvedExecutable);
+    final target = p.join(targetDir, assetName);
+    await File(downloadedPath).copy(target);
+    await Process.run('chmod', ['+x', target]);
+    await Process.start(target, [], mode: ProcessStartMode.detached);
+    exit(0);
   }
 
   static Future<void> _applyZipUpdate(String zipPath) async {
@@ -186,6 +212,9 @@ class UpdateService {
         final out = File(p.join(staging.path, file.name));
         await out.parent.create(recursive: true);
         await out.writeAsBytes(file.content as List<int>);
+        if (Platform.isLinux && (file.name == 'grey_vless' || file.name.endsWith('/grey_vless'))) {
+          await Process.run('chmod', ['+x', out.path]);
+        }
       }
     }
 

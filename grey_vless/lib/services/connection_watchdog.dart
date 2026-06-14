@@ -28,7 +28,7 @@ class ConnectionWatchdog {
     _server = server;
     _failStreak = 0;
     _timer?.cancel();
-    _timer = Timer.periodic(const Duration(seconds: 25), (_) => _tick());
+    _timer = Timer.periodic(const Duration(seconds: 45), (_) => _tick());
   }
 
   void stop() {
@@ -47,7 +47,7 @@ class ConnectionWatchdog {
       return;
     }
     _failStreak++;
-    if (_failStreak < 2) return;
+    if (_failStreak < 3) return;
 
     _reconnecting = true;
     try {

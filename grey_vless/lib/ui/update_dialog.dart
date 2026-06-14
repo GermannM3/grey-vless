@@ -30,8 +30,8 @@ Future<void> showUpdateDialog(BuildContext context, UpdateInfo info) async {
                   ),
                 ] else
                   const Text(
-                    'Приложение само скачает сборку с GitHub Releases. '
-                    'На Android откроется установщик APK, на ПК — перезапуск с новой версией.',
+                    'Приложение скачает сборку для вашей платформы с GitHub Releases. '
+                    'Android — установщик APK; Windows/Linux — перезапуск; macOS — откроется .dmg; AppImage — новый файл рядом с текущим.',
                   ),
               ],
             ),

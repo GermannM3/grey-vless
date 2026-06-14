@@ -110,10 +110,14 @@ class GreyVpnService : VpnService() {
             .addAddress("172.19.0.1", 30)
             .addRoute("0.0.0.0", 0)
             .addRoute("128.0.0.0", 1)
+            .addRoute("::", 0)
             .addDnsServer("8.8.8.8")
             .addDnsServer("1.1.1.1")
             .setMtu(1500)
             .setBlocking(false)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            builder.setMetered(false)
+        }
         try {
             builder.addDisallowedApplication(packageName)
         } catch (e: Exception) {
@@ -133,7 +137,7 @@ class GreyVpnService : VpnService() {
             socks5:
               port: $proxyPort
               address: 127.0.0.1
-              udp: 'tcp'
+              udp: 'udp'
         """.trimIndent()
 
         val hevFile = File(filesDir, "hev-socks5.yml")

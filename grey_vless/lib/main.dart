@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
 
+import 'services/auto_update_watcher.dart';
 import 'services/connection_service.dart';
 import 'services/grey_sense_service.dart';
 import 'services/settings_repository.dart';
@@ -51,7 +52,9 @@ class GreyVlessApp extends StatelessWidget {
       title: 'Grey vless',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.dark(),
-      home: const HomeScreen(),
+      home: const AutoUpdateWatcher(
+        child: HomeScreen(),
+      ),
     );
   }
 }

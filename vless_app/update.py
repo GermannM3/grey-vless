@@ -16,7 +16,12 @@ _API = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 _TAG_RE = re.compile(r"^v?(\d+\.\d+\.\d+)-build\.(\d+)$")
 _PREFERRED_ASSETS = (
     "grey-vless_{semver}_amd64.deb",
+    "Grey-vless-flutter-x86_64.AppImage",
     "Grey-vless-linux-x64.zip",
+    "Grey-vless-windows-x64.zip",
+    "Grey-vless-macos-arm64.dmg",
+    "Grey-vless-macos-x86_64.dmg",
+    "Grey-vless-android.apk",
 )
 
 
@@ -143,6 +148,9 @@ def prompt_update(parent, info: UpdateInfo, on_done: Callable[[], None] | None =
             _download_file(info.download_url, dest)
             if dest.suffix == ".deb":
                 _install_deb(dest)
+            elif dest.suffix == ".AppImage":
+                dest.chmod(0o755)
+                subprocess.Popen([str(dest)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             else:
                 open_url(info.release_page)
         except OSError as exc:

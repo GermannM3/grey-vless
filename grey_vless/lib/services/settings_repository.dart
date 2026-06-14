@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -36,7 +37,7 @@ class SettingsRepository {
     }
   }
 
-  bool get tunMode => prefs.getBool(_kTunMode) ?? false;
+  bool get tunMode => prefs.getBool(_kTunMode) ?? Platform.isAndroid;
   bool get autoConnect => prefs.getBool(_kAutoConnect) ?? false;
   bool get autoReconnect => prefs.getBool(_kAutoReconnect) ?? true;
   bool get greySenseEnabled => prefs.getBool(_kGreySense) ?? true;

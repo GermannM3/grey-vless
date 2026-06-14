@@ -10,6 +10,9 @@ class SingboxConfigBuilder {
         'tag': 'mixed-in',
         'listen': '127.0.0.1',
         'listen_port': localPort,
+        'sniff': true,
+        'sniff_override_destination': true,
+        'set_system_proxy': false,
       };
 
   static Map<String, dynamic> _tunInbound() {
@@ -65,6 +68,17 @@ class SingboxConfigBuilder {
       return {
         'rules': [
           {'protocol': 'dns', 'action': 'hijack-dns'},
+          {
+            'domain_suffix': [
+              'telegram.org',
+              't.me',
+              'telegra.ph',
+              'telegram.me',
+              'tdesktop.com',
+              'telesco.pe',
+            ],
+            'outbound': 'proxy',
+          },
         ],
         'final': 'proxy',
       };

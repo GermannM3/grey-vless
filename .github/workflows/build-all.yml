@@ -23,6 +23,31 @@ jobs:
           name: sing-box-cores
           path: grey_vless/assets/bin/
 
+  deb:
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: sing-box-cores
+          path: grey_vless/assets/bin
+      - name: Build .deb (GTK)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-pil dpkg-dev
+          mkdir -p bin
+          cp grey_vless/assets/bin/sing-box-linux-amd64 bin/sing-box
+          chmod +x bin/sing-box scripts/build-deb.sh
+          ./scripts/build-deb.sh
+          VERSION=$(grep '^version:' grey_vless/pubspec.yaml | awk '{print $2}' | cut -d+ -f1)
+          mkdir -p dist
+          cp "build/deb/grey-vless_${VERSION}_amd64.deb" "dist/grey-vless_${VERSION}_amd64.deb"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: grey-vless-deb
+          path: dist/grey-vless_*.deb
+
   linux:
     needs: prepare
     runs-on: ubuntu-latest
@@ -218,7 +243,7 @@ jobs:
           path: Grey-vless-flutter-x86_64.AppImage
 
   release:
-    needs: [linux, windows, macos-arm64, macos-intel, android, appimage]
+    needs: [linux, windows, macos-arm64, macos-intel, android, appimage, deb]
     if: always() && !cancelled() && needs.android.result == 'success' && needs.linux.result == 'success' && needs.windows.result == 'success'
     runs-on: ubuntu-latest
     steps:
@@ -244,6 +269,7 @@ jobs:
           cp release-assets/grey-vless-macos-arm64/Grey-vless-macos-arm64.dmg "$DIST/" 2>/dev/null || true
           cp release-assets/grey-vless-macos-intel/Grey-vless-macos-x86_64.dmg "$DIST/" 2>/dev/null || true
           cp release-assets/grey-vless-appimage/Grey-vless-flutter-x86_64.AppImage "$DIST/" 2>/dev/null || true
+          cp release-assets/grey-vless-deb/grey-vless_*.deb "$DIST/" 2>/dev/null || true
 
           if [[ -d release-assets/grey-vless-linux-x64 ]]; then
             (cd release-assets/grey-vless-linux-x64 && zip -qr "$DIST/Grey-vless-linux-x64.zip" .)
@@ -266,8 +292,9 @@ jobs:
             | macOS Intel (Monterey 12+) | Grey-vless-macos-x86_64.dmg |
             | Linux Flutter | Grey-vless-linux-x64.zip |
             | Linux AppImage | Grey-vless-flutter-x86_64.AppImage (если есть) |
+            | Linux .deb (GTK) | grey-vless_*_amd64.deb (если есть) |
 
-            **macOS Intel:** файл **x86_64**, не arm64.
+            **Автообновление:** Android APK, Windows zip, macOS dmg, Linux zip/AppImage; GTK .deb — через меню приложения.
           files: dist/*
           make_latest: true
           overwrite_files: true

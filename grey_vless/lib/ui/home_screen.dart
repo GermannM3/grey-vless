@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 
 import '../models/server.dart';
 import '../services/connection_service.dart';
+import '../services/grey_sense_service.dart';
 import '../services/ping_service.dart';
 import '../services/subscription.dart';
 import '../services/update_service.dart';
@@ -228,7 +229,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     title: Text(Platform.isAndroid ? 'TUN — полный VPN' : 'TUN (полный VPN)'),
                     subtitle: Text(
                       Platform.isAndroid
-                          ? 'Весь трафик через VPN. Без TUN — только проверка серверов.'
+                          ? 'Весь трафик (Telegram, браузер). Без TUN работает только проверка серверов.'
                           : 'Весь трафик через VPN',
                       style: const TextStyle(fontSize: 12, color: AppTheme.textMuted),
                     ),
@@ -317,8 +318,16 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _showGreySense(AppState state) async {
     final recommended = state.greySense.recommend(state.servers);
     final existingToken = await state.greySense.getHfToken();
+    final existingModel = await state.greySense.getHfModel();
     if (!mounted) return;
     final hfController = TextEditingController(text: existingToken ?? '');
+    final customModelController = TextEditingController(
+      text: GreySenseService.hfModelPresets.containsKey(existingModel) ? '' : existingModel,
+    );
+    var selectedModel = GreySenseService.hfModelPresets.containsKey(existingModel)
+        ? existingModel
+        : GreySenseService.defaultHfModel;
+    var useCustomModel = !GreySenseService.hfModelPresets.containsKey(existingModel);
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -331,95 +340,147 @@ class _HomeScreenState extends State<HomeScreen> {
           child: SingleChildScrollView(
             child: Padding(
               padding: EdgeInsets.fromLTRB(20, 12, 20, safeBottom + 20),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Center(
-                    child: Container(
-                      width: 40,
-                      height: 4,
-                      margin: const EdgeInsets.only(bottom: 16),
-                      decoration: BoxDecoration(
-                        color: AppTheme.divider,
-                        borderRadius: BorderRadius.circular(2),
+              child: StatefulBuilder(
+                builder: (ctx, setModalState) {
+                  return Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Center(
+                        child: Container(
+                          width: 40,
+                          height: 4,
+                          margin: const EdgeInsets.only(bottom: 16),
+                          decoration: BoxDecoration(
+                            color: AppTheme.divider,
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                        ),
                       ),
-                    ),
-                  ),
-                  Row(
-                    children: [
-                      const Icon(Icons.auto_awesome, color: AppTheme.accentGlow),
-                      const SizedBox(width: 8),
-                      Text('Grey Sense', style: Theme.of(ctx).textTheme.titleLarge),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    recommended != null
-                        ? 'Рекомендуем: ${recommended.name}${recommended.pingMs != null ? ' (${recommended.pingMs}мс)' : ''}'
-                        : 'Загрузите подписку для рекомендаций',
-                    style: const TextStyle(color: AppTheme.textPrimary),
-                  ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'Локально считаем пинг и историю обрывов. Hugging Face — опционально для текстовых подсказок (токен хранится только на телефоне).',
-                    style: TextStyle(fontSize: 12, color: AppTheme.textMuted),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: hfController,
-                    obscureText: true,
-                    keyboardType: TextInputType.visiblePassword,
-                    autocorrect: false,
-                    enableSuggestions: false,
-                    decoration: const InputDecoration(
-                      labelText: 'HF токен (необязательно)',
-                      filled: true,
-                      fillColor: AppTheme.cardLight,
-                      border: OutlineInputBorder(borderSide: BorderSide.none),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      TextButton(
-                        onPressed: () async {
-                          final data = await Clipboard.getData('text/plain');
-                          if (data?.text?.trim().isNotEmpty == true) {
-                            hfController.text = data!.text!.trim();
-                          }
+                      Row(
+                        children: [
+                          const Icon(Icons.auto_awesome, color: AppTheme.accentGlow),
+                          const SizedBox(width: 8),
+                          Text('Grey Sense', style: Theme.of(ctx).textTheme.titleLarge),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        recommended != null
+                            ? 'Рекомендуем: ${recommended.name}${recommended.pingMs != null ? ' (${recommended.pingMs}мс)' : ''}'
+                            : 'Загрузите подписку для рекомендаций',
+                        style: const TextStyle(color: AppTheme.textPrimary),
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Локально считаем пинг и историю обрывов. Hugging Face — опционально для текстовых подсказок (токен и модель хранятся только на телефоне).',
+                        style: TextStyle(fontSize: 12, color: AppTheme.textMuted),
+                      ),
+                      const SizedBox(height: 12),
+                      DropdownButtonFormField<String>(
+                        value: useCustomModel ? '_custom' : selectedModel,
+                        decoration: const InputDecoration(
+                          labelText: 'HF модель',
+                          filled: true,
+                          fillColor: AppTheme.cardLight,
+                          border: OutlineInputBorder(borderSide: BorderSide.none),
+                        ),
+                        items: [
+                          ...GreySenseService.hfModelPresets.entries.map(
+                            (e) => DropdownMenuItem(
+                              value: e.key,
+                              child: Text(e.value, overflow: TextOverflow.ellipsis),
+                            ),
+                          ),
+                          const DropdownMenuItem(
+                            value: '_custom',
+                            child: Text('Своя модель…'),
+                          ),
+                        ],
+                        onChanged: (value) {
+                          if (value == null) return;
+                          setModalState(() {
+                            useCustomModel = value == '_custom';
+                            if (!useCustomModel) selectedModel = value;
+                          });
                         },
-                        child: const Text('Вставить'),
                       ),
-                      if (recommended != null) ...[
-                        const Spacer(),
-                        FilledButton(
-                          onPressed: _busy
-                              ? null
-                              : () async {
-                                  Navigator.pop(ctx);
-                                  await _run(() async {
-                                    await state.connection.connect(recommended);
-                                    state.refresh();
-                                  });
-                                },
-                          child: const Text('Подключить лучший'),
+                      if (useCustomModel) ...[
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: customModelController,
+                          decoration: const InputDecoration(
+                            labelText: 'ID модели на Hugging Face',
+                            hintText: 'org/model-name',
+                            filled: true,
+                            fillColor: AppTheme.cardLight,
+                            border: OutlineInputBorder(borderSide: BorderSide.none),
+                          ),
                         ),
                       ],
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: hfController,
+                        obscureText: true,
+                        keyboardType: TextInputType.visiblePassword,
+                        autocorrect: false,
+                        enableSuggestions: false,
+                        decoration: const InputDecoration(
+                          labelText: 'HF токен (необязательно)',
+                          filled: true,
+                          fillColor: AppTheme.cardLight,
+                          border: OutlineInputBorder(borderSide: BorderSide.none),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          TextButton(
+                            onPressed: () async {
+                              final data = await Clipboard.getData('text/plain');
+                              if (data?.text?.trim().isNotEmpty == true) {
+                                hfController.text = data!.text!.trim();
+                              }
+                            },
+                            child: const Text('Вставить токен'),
+                          ),
+                          if (recommended != null) ...[
+                            const Spacer(),
+                            FilledButton(
+                              onPressed: _busy
+                                  ? null
+                                  : () async {
+                                      Navigator.pop(ctx);
+                                      await _run(() async {
+                                        await state.connection.connect(recommended);
+                                        state.refresh();
+                                      });
+                                    },
+                              child: const Text('Подключить лучший'),
+                            ),
+                          ],
+                        ],
+                      ),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: TextButton(
+                          onPressed: () async {
+                            final model = useCustomModel
+                                ? customModelController.text.trim()
+                                : selectedModel;
+                            await state.greySense.setHfConfig(
+                              token: hfController.text,
+                              model: model.isEmpty ? GreySenseService.defaultHfModel : model,
+                            );
+                            if (ctx.mounted) Navigator.pop(ctx);
+                            _snack('HF настройки сохранены локально');
+                          },
+                          child: const Text('Сохранить'),
+                        ),
+                      ),
                     ],
-                  ),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: TextButton(
-                      onPressed: () async {
-                        await state.greySense.setHfToken(hfController.text);
-                        if (ctx.mounted) Navigator.pop(ctx);
-                        _snack('Токен сохранён локально');
-                      },
-                      child: const Text('Сохранить токен'),
-                    ),
-                  ),
-                ],
+                  );
+                },
               ),
             ),
           ),
