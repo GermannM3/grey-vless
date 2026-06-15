@@ -1,7 +1,10 @@
 package com.grey.grey_vless
 
 import android.app.Activity
+import android.content.Context
 import android.content.Intent
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.net.VpnService
 import android.os.Build
 import android.os.Bundle
@@ -102,6 +105,7 @@ class MainActivity : FlutterActivity() {
                     }
                     "singboxIsRunning" -> result.success(SingboxHelper.isProxyRunning())
                     "isVpnActive" -> result.success(GreyVpnService.isActive())
+                    "isOtherVpnActive" -> result.success(isOtherVpnActive())
                     "singboxLastLog" -> result.success(SingboxHelper.getLastLog(applicationContext))
                     "prepareVpn" -> {
                         val intent = VpnService.prepare(this)
@@ -190,6 +194,21 @@ class MainActivity : FlutterActivity() {
     override fun onDestroy() {
         SingboxHelper.stopProxy()
         super.onDestroy()
+    }
+
+    /** Другой VPN-профиль активен (не Grey vless). */
+    private fun isOtherVpnActive(): Boolean {
+        if (GreyVpnService.isActive() || SingboxHelper.isProxyRunning()) {
+            return false
+        }
+        val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        for (network in cm.allNetworks) {
+            val caps = cm.getNetworkCapabilities(network) ?: continue
+            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) {
+                return true
+            }
+        }
+        return false
     }
 
     companion object {

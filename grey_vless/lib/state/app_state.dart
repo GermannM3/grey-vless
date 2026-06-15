@@ -1,16 +1,19 @@
 import 'package:flutter/foundation.dart';
 
 import '../models/server.dart';
+import '../services/auto_connect_service.dart';
 import '../services/connection_service.dart';
 import '../services/grey_sense_service.dart';
 import '../services/settings_repository.dart';
 
 class AppState extends ChangeNotifier {
-  AppState(this.connection, this._settings, this.greySense);
+  AppState(this.connection, this._settings, this.greySense)
+      : autoConnectService = AutoConnectService(_settings, connection);
 
   final ConnectionService connection;
   final SettingsRepository _settings;
   final GreySenseService greySense;
+  final AutoConnectService autoConnectService;
 
   List<VpnServer> servers = [];
   int? selectedIndex;
@@ -86,8 +89,14 @@ class AppState extends ChangeNotifier {
   Future<void> setAutoConnect(bool value) async {
     autoConnect = value;
     await _settings.saveAutoConnect(value);
+    if (!value) {
+      autoConnectService.resetSession();
+    }
     notifyListeners();
   }
+
+  /// Свежее значение из SharedPreferences — не полагаемся на кэш в памяти.
+  bool get autoConnectEnabled => _settings.autoConnect;
 
   Future<void> persistServers() async {
     await _settings.saveServers(servers);

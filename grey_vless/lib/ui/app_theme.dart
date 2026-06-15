@@ -38,6 +38,32 @@ class AppTheme {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       ),
       dividerColor: divider,
+      iconTheme: const IconThemeData(color: textPrimary),
+      textTheme: const TextTheme(
+        bodyLarge: TextStyle(color: textPrimary),
+        bodyMedium: TextStyle(color: textPrimary),
+        bodySmall: TextStyle(color: textMuted),
+        titleLarge: TextStyle(color: textPrimary, fontWeight: FontWeight.w600),
+        titleMedium: TextStyle(color: textPrimary, fontWeight: FontWeight.w600),
+        labelLarge: TextStyle(color: textPrimary),
+      ),
+      listTileTheme: const ListTileThemeData(
+        iconColor: textPrimary,
+        textColor: textPrimary,
+      ),
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(
+          backgroundColor: accent,
+          foregroundColor: Colors.white,
+        ),
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(foregroundColor: accentGlow),
+      ),
+      inputDecorationTheme: InputDecorationTheme(
+        labelStyle: const TextStyle(color: textMuted),
+        hintStyle: TextStyle(color: textMuted.withValues(alpha: 0.7)),
+      ),
       snackBarTheme: SnackBarThemeData(
         behavior: SnackBarBehavior.floating,
         backgroundColor: cardLight,

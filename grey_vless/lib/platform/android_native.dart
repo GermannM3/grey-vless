@@ -75,6 +75,12 @@ class AndroidNative {
     return ok ?? false;
   }
 
+  /// Чужой VPN активен (WireGuard, OpenVPN и т.д.) — Grey vless не запущен.
+  static Future<bool> isOtherVpnActive() async {
+    final ok = await _channel.invokeMethod<bool>('isOtherVpnActive');
+    return ok ?? false;
+  }
+
   static Future<bool> prepareVpn() async {
     final ok = await _channel.invokeMethod<bool>('prepareVpn');
     return ok ?? false;

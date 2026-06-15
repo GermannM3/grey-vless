@@ -6,12 +6,14 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../models/server.dart';
+import '../services/auto_connect_service.dart';
 import '../services/connection_service.dart';
 import '../services/grey_sense_service.dart';
 import '../services/ping_service.dart';
 import '../services/subscription.dart';
 import '../services/update_service.dart';
 import '../state/app_state.dart';
+import 'app_screen.dart';
 import 'app_theme.dart';
 import 'country_flag.dart';
 import 'update_dialog.dart';
@@ -28,16 +30,45 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _checkingUpdate = false;
   bool _pinging = false;
   bool _serversHidden = false;
+  bool _autoConnectBusy = false;
   StreamSubscription<ConnectionEvent>? _connSub;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       _checkForUpdates(silent: true);
       final state = context.read<AppState>();
       _connSub = state.connection.events.listen(_onConnectionEvent);
+      await _tryAutoConnect(state);
     });
+  }
+
+  Future<void> _tryAutoConnect(AppState state, {bool force = false}) async {
+    if (_autoConnectBusy || _busy) return;
+    if (!state.autoConnectEnabled) return;
+    _autoConnectBusy = true;
+    try {
+      final result = await state.autoConnectService.tryConnect(
+        servers: state.servers,
+        selectedIndex: state.selectedIndex,
+        force: force,
+      );
+      if (!mounted) return;
+      switch (result) {
+        case AutoConnectConnected(:final server):
+          state.refresh();
+          _snack('Автоподключение: ${server.name}', bg: AppTheme.statusOk.withValues(alpha: 0.9));
+        case AutoConnectBlocked(:final reason):
+          _snack(reason, bg: Colors.orange.shade900);
+        case AutoConnectSkipped():
+          break;
+      }
+    } catch (e) {
+      if (mounted) _snack(_shortError(e), bg: Colors.red.shade800);
+    } finally {
+      _autoConnectBusy = false;
+    }
   }
 
   @override
@@ -118,8 +149,8 @@ class _HomeScreenState extends State<HomeScreen> {
     if (servers.isNotEmpty) {
       await state.setSelectedIndex(0);
     }
-    if (state.autoConnect && servers.isNotEmpty) {
-      await state.connection.connectFastest(servers);
+    if (state.autoConnectEnabled && servers.isNotEmpty) {
+      await _tryAutoConnect(state, force: true);
       await state.persistServers();
     }
   }
@@ -230,7 +261,9 @@ class _HomeScreenState extends State<HomeScreen> {
                     subtitle: Text(
                       Platform.isAndroid
                           ? 'Весь трафик (Telegram, браузер). Без TUN работает только проверка серверов.'
-                          : 'Весь трафик через VPN',
+                          : Platform.isLinux
+                              ? 'Полный VPN через TUN (нужен setcap). Без TUN — системный прокси GNOME.'
+                              : 'Весь трафик через VPN',
                       style: const TextStyle(fontSize: 12, color: AppTheme.textMuted),
                     ),
                     value: state.tunMode,
@@ -238,9 +271,22 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
-                    title: const Text('Автоподключение к самому быстрому'),
+                    title: const Text('Автоподключение при запуске'),
+                    subtitle: Text(
+                      Platform.isAndroid
+                          ? 'Подключается при открытии приложения. Не сработает, если активен другой VPN.'
+                          : 'Подключается при запуске к выбранному или самому быстрому серверу',
+                      style: const TextStyle(fontSize: 12, color: AppTheme.textMuted),
+                    ),
                     value: state.autoConnect,
-                    onChanged: _busy ? null : (v) => state.setAutoConnect(v),
+                    onChanged: _busy
+                        ? null
+                        : (v) async {
+                            await state.setAutoConnect(v);
+                            if (v && state.servers.isNotEmpty && !state.connection.isConnected) {
+                              await _tryAutoConnect(state, force: true);
+                            }
+                          },
                   ),
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
@@ -525,146 +571,136 @@ class _HomeScreenState extends State<HomeScreen> {
     final recommended = state.greySense.recommend(state.servers);
 
     if (!state.loaded) {
-      return DecoratedBox(
-        decoration: AppTheme.screenGradient,
-        child: Scaffold(
-          backgroundColor: Colors.transparent,
-          body: Center(child: CircularProgressIndicator(color: AppTheme.accent)),
-        ),
+      return const AppScreen(
+        body: Center(child: CircularProgressIndicator(color: AppTheme.accent)),
       );
     }
 
-    return DecoratedBox(
-      decoration: AppTheme.screenGradient,
-      child: Scaffold(
-        backgroundColor: Colors.transparent,
-        body: SafeArea(
-          child: Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(8, 8, 8, 0),
-                child: Row(
-                  children: [
-                    IconButton(
-                      tooltip: 'Настройки',
-                      onPressed: () => _showSettings(),
-                      icon: const Icon(Icons.settings_outlined),
-                    ),
-                    const Spacer(),
-                    IconButton(
-                      tooltip: 'Grey Sense',
-                      onPressed: () => _showGreySense(state),
-                      icon: const Icon(Icons.auto_awesome_outlined, color: AppTheme.accentGlow),
-                    ),
-                    IconButton(
-                      tooltip: 'Добавить подписку',
-                      onPressed: () => _showAddSheet(state),
-                      icon: const Icon(Icons.add),
-                    ),
-                  ],
+    return AppScreen(
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(8, 8, 8, 0),
+            child: Row(
+              children: [
+                IconButton(
+                  tooltip: 'Настройки',
+                  onPressed: () => _showSettings(),
+                  icon: const Icon(Icons.settings_outlined, color: AppTheme.textPrimary),
                 ),
-              ),
-              const SizedBox(height: 8),
-              _ConnectOrb(
-                busy: _busy,
-                pinging: _pinging,
-                connected: connected,
-                statusText: _statusText(conn),
-                onTap: () => _run(() => _toggleConnection(state)),
-                onLongPress: state.servers.isEmpty ? null : () => _pingAll(state),
-              ),
-              const SizedBox(height: 8),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: InkWell(
-                        borderRadius: BorderRadius.circular(8),
-                        onTap: _busy || _pinging || state.servers.isEmpty
-                            ? null
-                            : () => _pingAll(state),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 6),
-                          child: Row(
-                            children: [
-                              if (_pinging)
-                                const SizedBox(
-                                  width: 16,
-                                  height: 16,
-                                  child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.accent),
-                                )
-                              else
-                                const Icon(Icons.speed, size: 18, color: AppTheme.accent),
-                              const SizedBox(width: 8),
-                              Text(
-                                _pinging ? 'Проверка пинга…' : 'Проверка пинга',
-                                style: const TextStyle(color: AppTheme.textPrimary, fontSize: 13),
-                              ),
-                            ],
+                const Spacer(),
+                IconButton(
+                  tooltip: 'Grey Sense',
+                  onPressed: () => _showGreySense(state),
+                  icon: const Icon(Icons.auto_awesome_outlined, color: AppTheme.accentGlow),
+                ),
+                IconButton(
+                  tooltip: 'Добавить подписку',
+                  onPressed: () => _showAddSheet(state),
+                  icon: const Icon(Icons.add, color: AppTheme.textPrimary),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+          _ConnectOrb(
+            busy: _busy || _autoConnectBusy,
+            pinging: _pinging,
+            connected: connected,
+            statusText: _statusText(conn),
+            onTap: () => _run(() => _toggleConnection(state)),
+            onLongPress: state.servers.isEmpty ? null : () => _pingAll(state),
+          ),
+          const SizedBox(height: 8),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Row(
+              children: [
+                Expanded(
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(8),
+                    onTap: _busy || _pinging || state.servers.isEmpty
+                        ? null
+                        : () => _pingAll(state),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 6),
+                      child: Row(
+                        children: [
+                          if (_pinging)
+                            const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.accent),
+                            )
+                          else
+                            const Icon(Icons.speed, size: 18, color: AppTheme.accent),
+                          const SizedBox(width: 8),
+                          Text(
+                            _pinging ? 'Проверка пинга…' : 'Проверка пинга',
+                            style: const TextStyle(color: AppTheme.textPrimary, fontSize: 13),
                           ),
-                        ),
+                        ],
                       ),
                     ),
-                    if (state.servers.isNotEmpty)
-                      TextButton(
-                        onPressed: () => setState(() => _serversHidden = !_serversHidden),
-                        child: Text(_serversHidden ? 'Показать все' : 'Скрыть все'),
-                      ),
-                  ],
-                ),
-              ),
-              if (state.subscriptionUrl.isNotEmpty || state.servers.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                  child: _SubscriptionCard(
-                    name: state.subscriptionName,
-                    serverCount: state.servers.length,
-                    busy: _busy,
-                    onRefresh: () => _run(() => _refreshSubscription(state)),
                   ),
                 ),
-              Expanded(
-                child: state.servers.isEmpty
-                    ? Center(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.cloud_off_outlined, size: 48, color: AppTheme.textMuted.withValues(alpha: 0.5)),
-                            const SizedBox(height: 12),
-                            const Text('Добавьте подписку', style: TextStyle(color: AppTheme.textMuted)),
-                            const SizedBox(height: 12),
-                            FilledButton.icon(
-                              onPressed: () => _showAddSheet(state),
-                              icon: const Icon(Icons.add),
-                              label: const Text('Добавить'),
-                            ),
-                          ],
-                        ),
-                      )
-                    : _serversHidden
-                        ? const SizedBox.shrink()
-                        : ListView.builder(
-                            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                            itemCount: state.servers.length,
-                            itemBuilder: (context, index) {
-                              final server = state.servers[index];
-                              final selected = state.selectedIndex == index;
-                              final isConnected = conn.connectedServer == server;
-                              return _ServerRow(
-                                server: server,
-                                selected: selected,
-                                connected: isConnected,
-                                recommended: recommended == server,
-                                busy: _busy,
-                                onTap: () => _onServerTap(state, index),
-                              );
-                            },
-                          ),
-              ),
-            ],
+                if (state.servers.isNotEmpty)
+                  TextButton(
+                    onPressed: () => setState(() => _serversHidden = !_serversHidden),
+                    child: Text(_serversHidden ? 'Показать все' : 'Скрыть все'),
+                  ),
+              ],
+            ),
           ),
-        ),
+          if (state.subscriptionUrl.isNotEmpty || state.servers.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: _SubscriptionCard(
+                name: state.subscriptionName,
+                serverCount: state.servers.length,
+                busy: _busy,
+                onRefresh: () => _run(() => _refreshSubscription(state)),
+              ),
+            ),
+          Expanded(
+            child: state.servers.isEmpty
+                ? Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.cloud_off_outlined, size: 48, color: AppTheme.textMuted.withValues(alpha: 0.5)),
+                        const SizedBox(height: 12),
+                        const Text('Добавьте подписку', style: TextStyle(color: AppTheme.textMuted)),
+                        const SizedBox(height: 12),
+                        FilledButton.icon(
+                          onPressed: () => _showAddSheet(state),
+                          icon: const Icon(Icons.add),
+                          label: const Text('Добавить'),
+                        ),
+                      ],
+                    ),
+                  )
+                : _serversHidden
+                    ? const SizedBox.shrink()
+                    : ListView.builder(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                        itemCount: state.servers.length,
+                        itemBuilder: (context, index) {
+                          final server = state.servers[index];
+                          final selected = state.selectedIndex == index;
+                          final isConnected = conn.connectedServer == server;
+                          return _ServerRow(
+                            server: server,
+                            selected: selected,
+                            connected: isConnected,
+                            recommended: recommended == server,
+                            busy: _busy,
+                            onTap: () => _onServerTap(state, index),
+                          );
+                        },
+                      ),
+          ),
+        ],
       ),
     );
   }

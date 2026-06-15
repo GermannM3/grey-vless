@@ -16,15 +16,21 @@ import 'ui/home_screen.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  if (Platform.isLinux || Platform.isWindows || Platform.isMacOS) {
+  // window_manager на Linux конфликтует с GTK-окном и даёт чёрный экран.
+  if (Platform.isWindows || Platform.isMacOS) {
     await windowManager.ensureInitialized();
     const options = WindowOptions(size: Size(420, 780), center: true, title: 'Grey vless');
     windowManager.waitUntilReadyToShow(options, () async {
       await windowManager.show();
       await windowManager.focus();
     });
-    await trayManager.setIcon('assets/icons/grey-vless.png');
-    await trayManager.setToolTip('Grey vless');
+  }
+
+  if (Platform.isLinux || Platform.isWindows || Platform.isMacOS) {
+    try {
+      await trayManager.setIcon('assets/icons/grey-vless.png');
+      await trayManager.setToolTip('Grey vless');
+    } catch (_) {}
   }
 
   final settings = SettingsRepository();

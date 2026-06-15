@@ -24,22 +24,20 @@ jobs:
           path: grey_vless/assets/bin/
 
   deb:
-    needs: prepare
+    needs: linux
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          name: sing-box-cores
-          path: grey_vless/assets/bin
-      - name: Build .deb (GTK)
+          name: grey-vless-linux-x64
+          path: bundle
+      - name: Build .deb (Flutter)
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq python3-pil dpkg-dev
-          mkdir -p bin
-          cp grey_vless/assets/bin/sing-box-linux-amd64 bin/sing-box
-          chmod +x bin/sing-box scripts/build-deb.sh
-          ./scripts/build-deb.sh
+          sudo apt-get install -y -qq dpkg-dev
+          chmod +x scripts/build-flutter-deb.sh
+          ./scripts/build-flutter-deb.sh bundle
           VERSION=$(grep '^version:' grey_vless/pubspec.yaml | awk '{print $2}' | cut -d+ -f1)
           mkdir -p dist
           cp "build/deb/grey-vless_${VERSION}_amd64.deb" "dist/grey-vless_${VERSION}_amd64.deb"
@@ -290,9 +288,9 @@ jobs:
             | Windows | Grey-vless-windows-x64.zip → **grey_vless.exe** |
             | macOS Apple Silicon | Grey-vless-macos-arm64.dmg |
             | macOS Intel (Monterey 12+) | Grey-vless-macos-x86_64.dmg |
-            | Linux Flutter | Grey-vless-linux-x64.zip |
+            | Linux Flutter | Grey-vless-linux-x64.zip — **основной десктоп** |
             | Linux AppImage | Grey-vless-flutter-x86_64.AppImage (если есть) |
-            | Linux .deb (GTK) | grey-vless_*_amd64.deb (если есть) |
+            | Linux .deb | grey-vless_*_amd64.deb — Flutter, тот же UI что Android |
 
             **Автообновление:** Android APK, Windows zip, macOS dmg, Linux zip/AppImage; GTK .deb — через меню приложения.
           files: dist/*
