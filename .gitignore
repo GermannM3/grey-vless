@@ -6,3 +6,7 @@
 # Hugging Face и прочие токены
 **/secrets/
 *.token
+
+# Бинарники ядер (качает scripts/download-cores.sh в CI)
+grey_vless/assets/bin/*
+!grey_vless/assets/bin/.gitkeep

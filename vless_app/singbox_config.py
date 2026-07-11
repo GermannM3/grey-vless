@@ -1,4 +1,5 @@
 from typing import Any, Dict, List
+import sys
 
 from .models import Server
 
@@ -18,7 +19,7 @@ def _tun_inbound() -> Dict[str, Any]:
     return {
         "type": "tun",
         "tag": "tun-in",
-        "interface_name": "tun0",
+        "interface_name": "grey-tun" if sys.platform == "win32" else "tun0",
         "address": ["172.19.0.1/30"],
         "auto_route": True,
         "strict_route": True,
@@ -199,7 +200,6 @@ def build_config(server: Server, local_port: int = LOCAL_PORT, tun_mode: bool = 
         "outbounds": [
             builder(server),
             {"type": "direct", "tag": "direct"},
-            {"type": "block", "tag": "block"},
         ],
         "route": _route_block(),
     }

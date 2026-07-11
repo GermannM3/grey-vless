@@ -11,6 +11,7 @@ import '../services/connection_service.dart';
 import '../services/grey_sense_service.dart';
 import '../services/ping_service.dart';
 import '../services/subscription.dart';
+import '../services/update_preferences.dart';
 import '../services/update_service.dart';
 import '../state/app_state.dart';
 import 'app_screen.dart';
@@ -263,7 +264,9 @@ class _HomeScreenState extends State<HomeScreen> {
                           ? 'Весь трафик (Telegram, браузер). Без TUN работает только проверка серверов.'
                           : Platform.isLinux
                               ? 'Полный VPN через TUN (нужен setcap). Без TUN — системный прокси GNOME.'
-                              : 'Весь трафик через VPN',
+                              : Platform.isWindows
+                                  ? 'Весь трафик через VPN. При подключении запросит права администратора (UAC).'
+                                  : 'Весь трафик через VPN',
                       style: const TextStyle(fontSize: 12, color: AppTheme.textMuted),
                     ),
                     value: state.tunMode,
@@ -307,6 +310,30 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                     value: state.greySenseEnabled,
                     onChanged: _busy ? null : (v) => state.setGreySenseEnabled(v),
+                  ),
+                  FutureBuilder<bool>(
+                    future: UpdatePreferences().autoUpdateEnabled(),
+                    builder: (context, snap) {
+                      final enabled = snap.data ?? true;
+                      return SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Автообновление с GitHub'),
+                        subtitle: const Text(
+                          'Проверять релизы при запуске и раз в несколько часов',
+                          style: TextStyle(fontSize: 12, color: AppTheme.textMuted),
+                        ),
+                        value: enabled,
+                        onChanged: _busy
+                            ? null
+                            : (v) async {
+                                await UpdatePreferences().setAutoUpdateEnabled(v);
+                                if (ctx.mounted) {
+                                  Navigator.pop(ctx);
+                                  _showSettings();
+                                }
+                              },
+                      );
+                    },
                   ),
                   ListTile(
                     contentPadding: EdgeInsets.zero,

@@ -28,10 +28,12 @@ class SingboxConfigBuilder {
         'sniff_override_destination': true,
       };
     }
+    // Windows: WinTun; имя tun0 часто конфликтует — используем grey-tun.
+    final iface = Platform.isWindows ? 'grey-tun' : 'tun0';
     return {
       'type': 'tun',
       'tag': 'tun-in',
-      'interface_name': 'tun0',
+      'interface_name': iface,
       'address': ['172.19.0.1/30'],
       'auto_route': true,
       'strict_route': true,
@@ -57,7 +59,6 @@ class SingboxConfigBuilder {
       'outbounds': [
         _outbound(server),
         {'type': 'direct', 'tag': 'direct'},
-        {'type': 'block', 'tag': 'block'},
       ],
       'route': _routeBlock(),
     };

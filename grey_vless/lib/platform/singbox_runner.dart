@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../services/singbox_config.dart';
 import 'android_native.dart';
+import 'windows_elevation.dart';
 
 class SingboxRunner {
   Process? _process;
@@ -27,6 +28,24 @@ class SingboxRunner {
       return true;
     } catch (_) {
       return false;
+    }
+  }
+
+  Future<void> _ensureWintun(String singboxPath) async {
+    if (!Platform.isWindows) return;
+    final dir = p.dirname(singboxPath);
+    final dest = File(p.join(dir, 'wintun.dll'));
+    if (await dest.exists()) return;
+    try {
+      final data = await rootBundle.load('assets/bin/wintun.dll');
+      await dest.writeAsBytes(
+        data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
+        flush: true,
+      );
+    } catch (e) {
+      throw Exception(
+        'Не удалось извлечь wintun.dll (нужен для TUN на Windows): $e',
+      );
     }
   }
 
@@ -57,7 +76,9 @@ class SingboxRunner {
       );
     }
 
-    if (!Platform.isWindows) {
+    if (Platform.isWindows) {
+      await _ensureWintun(out.path);
+    } else {
       final result = await Process.run('chmod', ['+x', out.path]);
       if (result.exitCode != 0) {
         throw Exception('chmod не сработал для sing-box');
@@ -75,8 +96,31 @@ class SingboxRunner {
     return content.substring(content.length - 900);
   }
 
+  String _tunFailureHint(String log, {required bool tunMode}) {
+    if (!tunMode) return '';
+    final lower = log.toLowerCase();
+    if (Platform.isWindows &&
+        (lower.contains('access is denied') ||
+            lower.contains('wintun') ||
+            lower.contains('error creating interface') ||
+            lower.contains('configure tun'))) {
+      return '. TUN на Windows нужен запуск от имени администратора (UAC) и wintun.dll рядом с sing-box.';
+    }
+    if (lower.contains('operation not permitted')) {
+      return '. TUN нужны права: sudo setcap cap_net_admin+ep на sing-box';
+    }
+    return '';
+  }
+
   Future<void> start(Map<String, dynamic> config, {bool tunMode = false}) async {
     await stop();
+
+    if (Platform.isWindows && tunMode) {
+      if (!await WindowsElevation.isElevated()) {
+        await WindowsElevation.relaunchElevated();
+        return;
+      }
+    }
 
     if (Platform.isAndroid && tunMode) {
       if (!await AndroidNative.isHevAvailable()) {
@@ -161,6 +205,7 @@ class SingboxRunner {
         ['run', '-c', configPath],
         mode: ProcessStartMode.normal,
         runInShell: false,
+        workingDirectory: p.dirname(binary),
       );
     } on ProcessException catch (e) {
       throw Exception('Не удалось запустить sing-box (${e.message})');
@@ -180,9 +225,7 @@ class SingboxRunner {
         _process = null;
         _alive = false;
         var msg = 'sing-box завершился';
-        if (tunMode && log.toLowerCase().contains('operation not permitted')) {
-          msg += '. TUN нужны права: sudo setcap cap_net_admin+ep на sing-box';
-        }
+        msg += _tunFailureHint(log, tunMode: tunMode);
         if (log.isNotEmpty) msg += ': $log';
         throw Exception(msg);
       } on TimeoutException {
@@ -198,7 +241,8 @@ class SingboxRunner {
     await stop();
     throw Exception(
       'Порт 127.0.0.1:${SingboxConfigBuilder.localPort} не открылся. '
-      '${log.isEmpty ? "sing-box не слушает прокси." : log}',
+      '${log.isEmpty ? "sing-box не слушает прокси." : log}'
+      '${_tunFailureHint(log, tunMode: tunMode)}',
     );
   }
 

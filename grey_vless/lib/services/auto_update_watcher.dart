@@ -2,10 +2,11 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../services/update_preferences.dart';
 import '../services/update_service.dart';
 import '../ui/update_dialog.dart';
 
-/// Авто-проверка обновлений: при старте, при возврате в приложение, раз в 4 часа.
+/// Авто-проверка обновлений с GitHub Releases: старт, resume, каждые 4 часа.
 class AutoUpdateWatcher extends StatefulWidget {
   const AutoUpdateWatcher({super.key, required this.child});
 
@@ -16,6 +17,7 @@ class AutoUpdateWatcher extends StatefulWidget {
 }
 
 class _AutoUpdateWatcherState extends State<AutoUpdateWatcher> with WidgetsBindingObserver {
+  final _prefs = UpdatePreferences();
   Timer? _periodic;
   bool _checking = false;
   String? _dismissedTag;
@@ -44,6 +46,7 @@ class _AutoUpdateWatcherState extends State<AutoUpdateWatcher> with WidgetsBindi
 
   Future<void> _check({bool silent = false}) async {
     if (_checking || !mounted) return;
+    if (silent && !await _prefs.autoUpdateEnabled()) return;
     _checking = true;
     try {
       final info = await UpdateService.checkForUpdate();

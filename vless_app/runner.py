@@ -87,6 +87,8 @@ class SingBoxRunner:
             hint = ""
             if tun_mode and "operation not permitted" in details.lower():
                 hint = "\nTUN нужны права: sudo setcap cap_net_admin,cap_net_bind_service+ep /opt/grey-vless/bin/sing-box"
+            elif tun_mode and ("access is denied" in details.lower() or "wintun" in details.lower()):
+                hint = "\nTUN на Windows: запустите от имени администратора и положите wintun.dll рядом с sing-box."
             raise RuntimeError(
                 f"sing-box не запустился.{hint}\n{details or 'Проверьте конфиг сервера.'}"
             )

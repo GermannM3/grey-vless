@@ -1,7 +1,7 @@
 name: grey_vless
 description: Grey vless — cross-platform VPN client
 publish_to: "none"
-version: 0.4.15+19
+version: 0.4.16+20
 
 environment:
   sdk: ">=3.3.0 <4.0.0"
@@ -31,6 +31,7 @@ flutter:
     - assets/icons/grey-vless.png
     - assets/bin/sing-box-linux-amd64
     - assets/bin/sing-box-windows-amd64.exe
+    - assets/bin/wintun.dll
     - assets/bin/sing-box-darwin-amd64
     - assets/bin/sing-box-darwin-arm64
     - assets/bin/sing-box-android-arm64

@@ -89,13 +89,13 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "com.grey" "\0"
-            VALUE "FileDescription", "grey_vless" "\0"
+            VALUE "CompanyName", "GermannM3" "\0"
+            VALUE "FileDescription", "Grey vless" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
             VALUE "InternalName", "grey_vless" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2026 com.grey. All rights reserved." "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2026 GermannM3. All rights reserved." "\0"
             VALUE "OriginalFilename", "grey_vless.exe" "\0"
-            VALUE "ProductName", "grey_vless" "\0"
+            VALUE "ProductName", "Grey vless" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

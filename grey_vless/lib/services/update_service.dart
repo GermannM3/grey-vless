@@ -222,8 +222,10 @@ class UpdateService {
       final script = File(p.join(staging.path, '_update.bat'));
       await script.writeAsString('''
 @echo off
+chcp 65001 >nul
 timeout /t 2 /nobreak >nul
-xcopy /E /Y /I "${staging.path}\\*" "$installDir\\"
+xcopy /E /Y /I "${staging.path}\\*" "$installDir\\" >nul
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-ChildItem -LiteralPath '$installDir' -Recurse -File | Unblock-File -ErrorAction SilentlyContinue"
 start "" "$exe"
 del "%~f0"
 ''');

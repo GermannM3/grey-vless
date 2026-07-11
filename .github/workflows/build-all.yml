@@ -292,7 +292,9 @@ jobs:
             | Linux AppImage | Grey-vless-flutter-x86_64.AppImage (если есть) |
             | Linux .deb | grey-vless_*_amd64.deb — Flutter, тот же UI что Android |
 
-            **Автообновление:** Android APK, Windows zip, macOS dmg, Linux zip/AppImage; GTK .deb — через меню приложения.
+            **Windows:** после скачивания zip запустите `Установить.cmd` — так снимется блокировка «из Интернета» и появится ярлык в меню Пуск (оттуда закрепляйте на панели). TUN запросит UAC.
+
+            **Автообновление:** приложение само проверяет GitHub Releases (Android APK, Windows zip, macOS dmg, Linux zip/AppImage).
           files: dist/*
           make_latest: true
           overwrite_files: true
