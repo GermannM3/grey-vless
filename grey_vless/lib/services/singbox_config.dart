@@ -1,6 +1,8 @@
 import 'dart:io';
 
 import '../models/server.dart';
+import '../models/tunnel_mode.dart';
+import '../platform/installed_apps.dart';
 
 class SingboxConfigBuilder {
   static const localPort = 7890;
@@ -43,13 +45,18 @@ class SingboxConfigBuilder {
     };
   }
 
-  static Map<String, dynamic> build(VpnServer server, {bool tunMode = false}) {
+  static Map<String, dynamic> build(
+    VpnServer server, {
+    bool tunMode = false,
+    TunnelMode tunnelMode = TunnelMode.fullVpn,
+    List<String> tunnelAppIds = const [],
+  }) {
     final inbounds = <Map<String, dynamic>>[];
-    final useTun = tunMode && !Platform.isAndroid;
+    // Per-app на desktop требует TUN, чтобы видеть процесс источника.
+    final useTun = (tunMode || tunnelMode.needsAppList) && !Platform.isAndroid;
     if (useTun) {
       inbounds.add(_tunInbound());
     }
-    // Локальный HTTP/SOCKS — всегда
     inbounds.add(_mixedInbound());
 
     return {
@@ -60,35 +67,85 @@ class SingboxConfigBuilder {
         _outbound(server),
         {'type': 'direct', 'tag': 'direct'},
       ],
-      'route': _routeBlock(),
+      'route': _routeBlock(tunnelMode: tunnelMode, tunnelAppIds: tunnelAppIds),
     };
   }
 
-  static Map<String, dynamic> _routeBlock() {
+  static Map<String, dynamic> _routeBlock({
+    required TunnelMode tunnelMode,
+    required List<String> tunnelAppIds,
+  }) {
+    final rules = <Map<String, dynamic>>[
+      {'protocol': 'dns', 'action': 'hijack-dns'},
+    ];
+
+    // Свой клиент и ядро — всегда direct (анти-петля).
+    if (!Platform.isAndroid) {
+      rules.add({
+        'process_name': ['grey_vless.exe', 'grey_vless', 'sing-box.exe', 'sing-box'],
+        'outbound': 'direct',
+      });
+    }
+
     if (Platform.isAndroid) {
-      return {
-        'rules': [
-          {'protocol': 'dns', 'action': 'hijack-dns'},
-          {
-            'domain_suffix': [
-              'telegram.org',
-              't.me',
-              'telegra.ph',
-              'telegram.me',
-              'tdesktop.com',
-              'telesco.pe',
-            ],
-            'outbound': 'proxy',
-          },
+      rules.add({
+        'domain_suffix': [
+          'telegram.org',
+          't.me',
+          'telegra.ph',
+          'telegram.me',
+          'tdesktop.com',
+          'telesco.pe',
         ],
+        'outbound': 'proxy',
+      });
+      // Per-app на Android делает VpnService; в конфиге final=proxy.
+      return {
+        'rules': rules,
         'final': 'proxy',
       };
     }
+
+    // Desktop per-app через process_name / process_path (нужен find_process).
+    if (tunnelMode.needsAppList && tunnelAppIds.isNotEmpty) {
+      final matchers = InstalledApps.matchersFromIds(tunnelAppIds);
+      final processRule = <String, dynamic>{};
+      if (matchers.names.isNotEmpty) {
+        processRule['process_name'] = matchers.names;
+      }
+      if (matchers.paths.isNotEmpty) {
+        processRule['process_path'] = matchers.paths;
+      }
+      if (processRule.isNotEmpty) {
+        if (tunnelMode == TunnelMode.selectedApps) {
+          // Только выбранные → proxy, остальное напрямую.
+          processRule['outbound'] = 'proxy';
+          rules.add(processRule);
+          return {
+            'auto_detect_interface': true,
+            'find_process': true,
+            'rules': rules,
+            'final': 'direct',
+          };
+        }
+        if (tunnelMode == TunnelMode.bypassApps) {
+          // Выбранные → direct, остальное → proxy.
+          processRule['outbound'] = 'direct';
+          rules.add(processRule);
+          return {
+            'auto_detect_interface': true,
+            'find_process': true,
+            'rules': rules,
+            'final': 'proxy',
+          };
+        }
+      }
+    }
+
     return {
       'auto_detect_interface': true,
-      'rules': [
-        {'protocol': 'dns', 'action': 'hijack-dns'},
-      ],
+      'find_process': tunnelMode.needsAppList,
+      'rules': rules,
       'final': 'proxy',
     };
   }

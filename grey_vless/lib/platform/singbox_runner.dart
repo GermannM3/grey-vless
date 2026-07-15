@@ -128,10 +128,11 @@ class SingboxRunner {
       }
     }
 
-    if (!Platform.isAndroid && tunnelMode.needsAppList) {
+    if (tunnelMode.needsAppList && tunnelAppIds.isEmpty) {
       throw Exception(
-        'Режим «только выбранные приложения» работает на Android. '
-        'На ПК выберите «Полный VPN» или «Системный прокси».',
+        tunnelMode == TunnelMode.selectedApps
+            ? 'Выберите хотя бы одно приложение для прохождения через VLESS.'
+            : 'Выберите приложения, которые должны идти мимо VPN.',
       );
     }
 
@@ -139,13 +140,6 @@ class SingboxRunner {
       if (!await AndroidNative.isHevAvailable()) {
         throw Exception(
           'TUN недоступен на этом телефоне. Выберите «Системный прокси» в настройках туннеля.',
-        );
-      }
-      if (tunnelMode.needsAppList && tunnelAppIds.isEmpty) {
-        throw Exception(
-          tunnelMode == TunnelMode.selectedApps
-              ? 'Выберите хотя бы одно приложение для прохождения через VLESS.'
-              : 'Выберите приложения, которые должны идти мимо VPN.',
         );
       }
       final vpnReady = await AndroidNative.prepareVpn();

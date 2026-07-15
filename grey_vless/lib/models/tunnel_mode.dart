@@ -34,7 +34,7 @@ extension TunnelModeX on TunnelMode {
       case TunnelMode.fullVpn:
         return 'Весь трафик устройства через VLESS';
       case TunnelMode.selectedApps:
-        return 'VPN «включён», но в него попадают только отмеченные приложения';
+        return 'TUN включён: в VLESS идут только отмеченные приложения, остальные — напрямую';
       case TunnelMode.bypassApps:
         return 'Полный VPN, выбранные приложения идут мимо туннеля';
       case TunnelMode.systemProxy:

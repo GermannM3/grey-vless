@@ -262,15 +262,12 @@ class _HomeScreenState extends State<HomeScreen> {
                   Text('Режим туннеля', style: Theme.of(ctx).textTheme.titleMedium),
                   const SizedBox(height: 4),
                   ...TunnelMode.values.map((mode) {
-                    final desktopNote = !Platform.isAndroid && mode.needsAppList;
                     return RadioListTile<TunnelMode>(
                       contentPadding: EdgeInsets.zero,
                       dense: true,
                       title: Text(mode.title, style: const TextStyle(fontSize: 14)),
                       subtitle: Text(
-                        desktopNote
-                            ? '${mode.subtitle} — маршрутизация по приложениям реально режется на Android; на ПК список сохраняется, но для работы нужен полный VPN/прокси.'
-                            : mode.subtitle,
+                        mode.subtitle,
                         style: const TextStyle(fontSize: 11, color: AppTheme.textMuted),
                       ),
                       value: mode,
@@ -279,15 +276,6 @@ class _HomeScreenState extends State<HomeScreen> {
                           ? null
                           : (v) async {
                               if (v == null) return;
-                              if (!Platform.isAndroid && v.needsAppList) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text(
-                                      'На Windows/Linux per-app через TUN недоступен. Список приложений можно сохранить; для трафика выберите «Полный VPN» или «Системный прокси».',
-                                    ),
-                                  ),
-                                );
-                              }
                               await state.setTunnelMode(v);
                             },
                     );
@@ -298,7 +286,9 @@ class _HomeScreenState extends State<HomeScreen> {
                       title: const Text('Приложения для туннеля'),
                       subtitle: Text(
                         state.tunnelAppIds.isEmpty
-                            ? 'Список подгружается из системы'
+                            ? (Platform.isWindows
+                                ? 'Список exe из меню Пуск / установленных программ'
+                                : 'Список подгружается из системы')
                             : 'Выбрано: ${state.tunnelAppIds.length}',
                         style: const TextStyle(fontSize: 12, color: AppTheme.textMuted),
                       ),

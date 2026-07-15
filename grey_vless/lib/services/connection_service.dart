@@ -40,9 +40,21 @@ class ConnectionService {
     await disconnect(stopWatchdog: false);
     final resolved = _prepareServer(server);
     try {
-      final useTun = tunnelMode.usesTun;
+      final useTun = tunnelMode.usesTun || (!Platform.isAndroid && tunnelMode.needsAppList);
       tunMode = useTun;
-      final config = SingboxConfigBuilder.build(resolved, tunMode: useTun);
+      if (tunnelMode.needsAppList && tunnelAppIds.isEmpty) {
+        throw Exception(
+          tunnelMode == TunnelMode.selectedApps
+              ? 'Выберите хотя бы одно приложение для прохождения через VLESS.'
+              : 'Выберите приложения, которые должны идти мимо VPN.',
+        );
+      }
+      final config = SingboxConfigBuilder.build(
+        resolved,
+        tunMode: useTun,
+        tunnelMode: tunnelMode,
+        tunnelAppIds: tunnelAppIds,
+      );
       await _runner.start(
         config,
         tunMode: useTun,
