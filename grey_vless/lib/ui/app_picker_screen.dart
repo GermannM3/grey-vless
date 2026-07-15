@@ -67,7 +67,7 @@ class _AppPickerScreenState extends State<AppPickerScreen> {
   Widget build(BuildContext context) {
     final filtered = _filtered;
     return Scaffold(
-      backgroundColor: AppTheme.bg,
+      backgroundColor: AppTheme.bgTop,
       appBar: AppBar(
         title: Text(widget.title),
         actions: [
