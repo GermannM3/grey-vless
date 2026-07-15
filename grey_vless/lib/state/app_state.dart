@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import '../models/server.dart';
+import '../models/tunnel_mode.dart';
 import '../services/auto_connect_service.dart';
 import '../services/connection_service.dart';
 import '../services/grey_sense_service.dart';
@@ -17,7 +18,8 @@ class AppState extends ChangeNotifier {
 
   List<VpnServer> servers = [];
   int? selectedIndex;
-  bool tunMode = false;
+  TunnelMode tunnelMode = TunnelMode.fullVpn;
+  List<String> tunnelAppIds = [];
   bool autoConnect = false;
   bool autoReconnect = true;
   bool greySenseEnabled = true;
@@ -25,10 +27,13 @@ class AppState extends ChangeNotifier {
   String subscriptionName = 'Подписка';
   bool loaded = false;
 
+  bool get tunMode => tunnelMode.usesTun;
+
   Future<void> load() async {
     subscriptionUrl = _settings.subscriptionUrl;
     subscriptionName = _settings.subscriptionName;
-    tunMode = _settings.tunMode;
+    tunnelMode = _settings.tunnelMode;
+    tunnelAppIds = List.of(_settings.tunnelAppIds);
     autoConnect = _settings.autoConnect;
     autoReconnect = _settings.autoReconnect;
     greySenseEnabled = _settings.greySenseEnabled;
@@ -37,12 +42,18 @@ class AppState extends ChangeNotifier {
     if (selectedIndex != null && selectedIndex! >= servers.length) {
       selectedIndex = servers.isEmpty ? null : 0;
     }
-    connection.tunMode = tunMode;
+    _syncConnectionRouting();
     connection.autoReconnect = autoReconnect;
     connection.greySenseEnabled = greySenseEnabled;
     connection.updateServerList(servers);
     loaded = true;
     notifyListeners();
+  }
+
+  void _syncConnectionRouting() {
+    connection.tunMode = tunnelMode.usesTun;
+    connection.tunnelMode = tunnelMode;
+    connection.tunnelAppIds = List.of(tunnelAppIds);
   }
 
   Future<void> setSubscription(String url, {String? name}) async {
@@ -66,9 +77,20 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> setTunMode(bool value) async {
-    tunMode = value;
-    connection.tunMode = value;
-    await _settings.saveTunMode(value);
+    await setTunnelMode(value ? TunnelMode.fullVpn : TunnelMode.systemProxy);
+  }
+
+  Future<void> setTunnelMode(TunnelMode value) async {
+    tunnelMode = value;
+    _syncConnectionRouting();
+    await _settings.saveTunnelMode(value);
+    notifyListeners();
+  }
+
+  Future<void> setTunnelAppIds(List<String> ids) async {
+    tunnelAppIds = List.of(ids);
+    _syncConnectionRouting();
+    await _settings.saveTunnelAppIds(ids);
     notifyListeners();
   }
 

@@ -9,6 +9,7 @@ import android.net.VpnService
 import android.os.Build
 import android.os.IBinder
 import android.os.ParcelFileDescriptor
+import android.os.PowerManager
 import android.util.Log
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
@@ -17,6 +18,7 @@ class GreyVpnService : VpnService() {
     private var tunInterface: ParcelFileDescriptor? = null
     private var singboxProcess: Process? = null
     private var hevThread: Thread? = null
+    private var wakeLock: PowerManager.WakeLock? = null
     private val stopping = AtomicBoolean(false)
 
     override fun onCreate() {
@@ -30,6 +32,14 @@ class GreyVpnService : VpnService() {
         super.onDestroy()
     }
 
+    override fun onRevoke() {
+        Log.w(TAG, "VPN revoked by system")
+        stopTunnel()
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
+        super.onRevoke()
+    }
+
     companion object {
         private const val TAG = "GreyVpnService"
         const val ACTION_START = "com.grey.grey_vless.vpn.START"
@@ -37,6 +47,8 @@ class GreyVpnService : VpnService() {
         const val EXTRA_CONFIG = "config"
         const val EXTRA_BINARY = "binary"
         const val EXTRA_PROXY_PORT = "proxy_port"
+        const val EXTRA_ALLOWED = "allowed_apps"
+        const val EXTRA_DISALLOWED = "disallowed_apps"
         private const val NOTIF_ID = 42
         private const val CHANNEL_ID = "grey_vless_vpn"
 
@@ -61,6 +73,8 @@ class GreyVpnService : VpnService() {
                 val configPath = intent.getStringExtra(EXTRA_CONFIG)
                 val binaryPath = intent.getStringExtra(EXTRA_BINARY)
                 val proxyPort = intent.getIntExtra(EXTRA_PROXY_PORT, 7890)
+                val allowed = intent.getStringArrayListExtra(EXTRA_ALLOWED) ?: arrayListOf()
+                val disallowed = intent.getStringArrayListExtra(EXTRA_DISALLOWED) ?: arrayListOf()
                 if (configPath.isNullOrBlank() || binaryPath.isNullOrBlank()) {
                     stopSelf()
                     return START_NOT_STICKY
@@ -76,7 +90,8 @@ class GreyVpnService : VpnService() {
                 stopTunnel()
 
                 try {
-                    startVpnTunnel(configPath, binaryPath, proxyPort)
+                    acquireWakeLock()
+                    startVpnTunnel(configPath, binaryPath, proxyPort, allowed, disallowed)
                 } catch (e: Exception) {
                     Log.e(TAG, "VPN start failed", e)
                     stopTunnel()
@@ -89,7 +104,32 @@ class GreyVpnService : VpnService() {
         return START_STICKY
     }
 
-    private fun startVpnTunnel(configPath: String, binaryPath: String, proxyPort: Int) {
+    private fun acquireWakeLock() {
+        releaseWakeLock()
+        val pm = getSystemService(POWER_SERVICE) as PowerManager
+        wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "GreyVless:Vpn").apply {
+            setReferenceCounted(false)
+            acquire(6 * 60 * 60 * 1000L) // до 6 часов, продлевается при reconnect
+        }
+    }
+
+    private fun releaseWakeLock() {
+        try {
+            wakeLock?.let {
+                if (it.isHeld) it.release()
+            }
+        } catch (_: Exception) {
+        }
+        wakeLock = null
+    }
+
+    private fun startVpnTunnel(
+        configPath: String,
+        binaryPath: String,
+        proxyPort: Int,
+        allowed: List<String>,
+        disallowed: List<String>,
+    ) {
         singboxProcess = ProcessBuilder(binaryPath, "run", "-c", configPath)
             .redirectErrorStream(true)
             .directory(File(binaryPath).parentFile)
@@ -118,11 +158,33 @@ class GreyVpnService : VpnService() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             builder.setMetered(false)
         }
-        try {
-            builder.addDisallowedApplication(packageName)
-        } catch (e: Exception) {
-            Log.w(TAG, "addDisallowedApplication failed", e)
+
+        // VpnService: либо allowlist, либо disallowlist (кроме себя).
+        if (allowed.isNotEmpty()) {
+            for (pkg in allowed) {
+                try {
+                    builder.addAllowedApplication(pkg)
+                } catch (e: Exception) {
+                    Log.w(TAG, "addAllowedApplication $pkg failed", e)
+                }
+            }
+            // Своё приложение не добавляем в allow — иначе loop.
+        } else {
+            try {
+                builder.addDisallowedApplication(packageName)
+            } catch (e: Exception) {
+                Log.w(TAG, "addDisallowedApplication self failed", e)
+            }
+            for (pkg in disallowed) {
+                if (pkg == packageName) continue
+                try {
+                    builder.addDisallowedApplication(pkg)
+                } catch (e: Exception) {
+                    Log.w(TAG, "addDisallowedApplication $pkg failed", e)
+                }
+            }
         }
+
         tunInterface = builder.establish()
 
         if (tunInterface == null) {
@@ -152,7 +214,7 @@ class GreyVpnService : VpnService() {
             }
         }.apply {
             name = "hev-tun2socks"
-            isDaemon = true
+            isDaemon = false
             start()
         }
     }
@@ -163,8 +225,11 @@ class GreyVpnService : VpnService() {
             val channel = NotificationChannel(
                 CHANNEL_ID,
                 "Grey vless VPN",
-                NotificationManager.IMPORTANCE_LOW,
-            )
+                NotificationManager.IMPORTANCE_DEFAULT,
+            ).apply {
+                description = "Держит VPN активным при выключенном экране"
+                setShowBadge(false)
+            }
             manager.createNotificationChannel(channel)
         }
         val open = PendingIntent.getActivity(
@@ -181,10 +246,11 @@ class GreyVpnService : VpnService() {
         }
         return builder
             .setContentTitle("Grey vless")
-            .setContentText("VPN активен")
+            .setContentText("VPN активен — экран может быть выключен")
             .setSmallIcon(android.R.drawable.ic_lock_lock)
             .setContentIntent(open)
             .setOngoing(true)
+            .setCategory(Notification.CATEGORY_SERVICE)
             .build()
     }
 
@@ -201,6 +267,7 @@ class GreyVpnService : VpnService() {
         singboxProcess = null
         tunInterface?.close()
         tunInterface = null
+        releaseWakeLock()
         stopping.set(false)
     }
 

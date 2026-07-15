@@ -7,6 +7,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import '../services/singbox_config.dart';
+import '../models/tunnel_mode.dart';
 import 'android_native.dart';
 import 'windows_elevation.dart';
 
@@ -112,7 +113,12 @@ class SingboxRunner {
     return '';
   }
 
-  Future<void> start(Map<String, dynamic> config, {bool tunMode = false}) async {
+  Future<void> start(
+    Map<String, dynamic> config, {
+    bool tunMode = false,
+    TunnelMode tunnelMode = TunnelMode.fullVpn,
+    List<String> tunnelAppIds = const [],
+  }) async {
     await stop();
 
     if (Platform.isWindows && tunMode) {
@@ -122,16 +128,36 @@ class SingboxRunner {
       }
     }
 
+    if (!Platform.isAndroid && tunnelMode.needsAppList) {
+      throw Exception(
+        'Режим «только выбранные приложения» работает на Android. '
+        'На ПК выберите «Полный VPN» или «Системный прокси».',
+      );
+    }
+
     if (Platform.isAndroid && tunMode) {
       if (!await AndroidNative.isHevAvailable()) {
         throw Exception(
-          'TUN недоступен на этом телефоне. Отключите переключатель TUN — подключение через прокси всё равно работает.',
+          'TUN недоступен на этом телефоне. Выберите «Системный прокси» в настройках туннеля.',
+        );
+      }
+      if (tunnelMode.needsAppList && tunnelAppIds.isEmpty) {
+        throw Exception(
+          tunnelMode == TunnelMode.selectedApps
+              ? 'Выберите хотя бы одно приложение для прохождения через VLESS.'
+              : 'Выберите приложения, которые должны идти мимо VPN.',
         );
       }
       final vpnReady = await AndroidNative.prepareVpn();
       if (!vpnReady) {
         throw Exception('Нужно разрешение VPN. Подтвердите запрос системы и нажмите «Подключить» снова.');
       }
+      // Просим исключение из оптимизации батареи — иначе экран off убивает туннель на MIUI/Samsung.
+      try {
+        if (!await AndroidNative.isIgnoringBatteryOptimizations()) {
+          await AndroidNative.requestIgnoreBatteryOptimizations();
+        }
+      } catch (_) {}
     }
 
     final binary = await _resolveBinary();
@@ -161,10 +187,14 @@ class SingboxRunner {
     }
 
     if (Platform.isAndroid && tunMode) {
+      final allowed = tunnelMode == TunnelMode.selectedApps ? tunnelAppIds : <String>[];
+      final disallowed = tunnelMode == TunnelMode.bypassApps ? tunnelAppIds : <String>[];
       await AndroidNative.startVpn(
         configPath: configPath,
         binaryPath: binaryPath,
         proxyPort: SingboxConfigBuilder.localPort,
+        allowedApps: allowed,
+        disallowedApps: disallowed,
       );
       _androidVpn = true;
       await Future.delayed(const Duration(milliseconds: 1500));

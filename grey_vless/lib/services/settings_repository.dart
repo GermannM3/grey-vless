@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/server.dart';
+import '../models/tunnel_mode.dart';
 
 class SettingsRepository {
   static const _kSubscriptionUrl = 'subscription_url';
@@ -11,6 +12,8 @@ class SettingsRepository {
   static const _kServers = 'servers_json';
   static const _kSelectedIndex = 'selected_index';
   static const _kTunMode = 'tun_mode';
+  static const _kTunnelMode = 'tunnel_mode';
+  static const _kTunnelApps = 'tunnel_apps';
   static const _kAutoConnect = 'auto_connect';
   static const _kAutoReconnect = 'auto_reconnect';
   static const _kGreySense = 'grey_sense_enabled';
@@ -37,12 +40,40 @@ class SettingsRepository {
     }
   }
 
-  bool get tunMode => prefs.getBool(_kTunMode) ?? Platform.isAndroid;
+  /// Совместимость со старым boolean tun_mode.
+  bool get tunMode => tunnelMode.usesTun;
+
+  TunnelMode get tunnelMode {
+    final id = prefs.getString(_kTunnelMode);
+    if (id != null && id.isNotEmpty) {
+      return TunnelModeX.fromId(id);
+    }
+    // Миграция со старого переключателя.
+    final legacy = prefs.getBool(_kTunMode);
+    if (legacy == false) return TunnelMode.systemProxy;
+    if (legacy == true) return TunnelMode.fullVpn;
+    return Platform.isAndroid ? TunnelMode.fullVpn : TunnelMode.systemProxy;
+  }
+
+  List<String> get tunnelAppIds => prefs.getStringList(_kTunnelApps) ?? const [];
+
   bool get autoConnect => prefs.getBool(_kAutoConnect) ?? false;
   bool get autoReconnect => prefs.getBool(_kAutoReconnect) ?? true;
   bool get greySenseEnabled => prefs.getBool(_kGreySense) ?? true;
 
-  Future<void> saveTunMode(bool value) async => prefs.setBool(_kTunMode, value);
+  Future<void> saveTunMode(bool value) async {
+    await saveTunnelMode(value ? TunnelMode.fullVpn : TunnelMode.systemProxy);
+  }
+
+  Future<void> saveTunnelMode(TunnelMode mode) async {
+    await prefs.setString(_kTunnelMode, mode.id);
+    await prefs.setBool(_kTunMode, mode.usesTun);
+  }
+
+  Future<void> saveTunnelAppIds(List<String> ids) async {
+    await prefs.setStringList(_kTunnelApps, ids);
+  }
+
   Future<void> saveAutoConnect(bool value) async => prefs.setBool(_kAutoConnect, value);
   Future<void> saveAutoReconnect(bool value) async => prefs.setBool(_kAutoReconnect, value);
   Future<void> saveGreySenseEnabled(bool value) async => prefs.setBool(_kGreySense, value);

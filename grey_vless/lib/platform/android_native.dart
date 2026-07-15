@@ -86,16 +86,36 @@ class AndroidNative {
     return ok ?? false;
   }
 
+  static Future<List<Map<String, dynamic>>> listInstalledApps() async {
+    final raw = await _channel.invokeMethod<List>('listInstalledApps');
+    if (raw == null) return [];
+    return raw.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+  }
+
+  static Future<bool> isIgnoringBatteryOptimizations() async {
+    final ok = await _channel.invokeMethod<bool>('isIgnoringBatteryOptimizations');
+    return ok ?? true;
+  }
+
+  static Future<bool> requestIgnoreBatteryOptimizations() async {
+    final ok = await _channel.invokeMethod<bool>('requestIgnoreBatteryOptimizations');
+    return ok ?? false;
+  }
+
   static Future<void> startVpn({
     required String configPath,
     required String binaryPath,
     int proxyPort = 7890,
+    List<String> allowedApps = const [],
+    List<String> disallowedApps = const [],
   }) async {
     try {
       await _channel.invokeMethod<void>('startVpn', {
         'configPath': configPath,
         'binaryPath': binaryPath,
         'proxyPort': proxyPort,
+        'allowedApps': allowedApps,
+        'disallowedApps': disallowedApps,
       });
     } on PlatformException catch (e) {
       if (e.code == 'no_hev') {

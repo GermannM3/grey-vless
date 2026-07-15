@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
 
+import 'platform/windows_install.dart';
 import 'services/auto_update_watcher.dart';
 import 'services/connection_service.dart';
 import 'services/grey_sense_service.dart';
@@ -15,6 +16,17 @@ import 'ui/home_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  if (Platform.isWindows) {
+    try {
+      final shouldExit = await WindowsInstall.ensureInstalledAndRelaunch();
+      if (shouldExit) {
+        exit(0);
+      }
+    } catch (e) {
+      debugPrint('Windows install migrate failed: $e');
+    }
+  }
 
   // window_manager на Linux конфликтует с GTK-окном и даёт чёрный экран.
   if (Platform.isWindows || Platform.isMacOS) {

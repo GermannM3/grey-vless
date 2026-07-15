@@ -292,9 +292,11 @@ jobs:
             | Linux AppImage | Grey-vless-flutter-x86_64.AppImage (если есть) |
             | Linux .deb | grey-vless_*_amd64.deb — Flutter, тот же UI что Android |
 
-            **Windows:** после скачивания zip запустите `Установить.cmd` — так снимется блокировка «из Интернета» и появится ярлык в меню Пуск (оттуда закрепляйте на панели). TUN запросит UAC.
+            **Windows:** при первом запуске из Downloads приложение само ставится в `%LOCALAPPDATA%\Programs\Grey-vless` и снимает блокировку «из Интернета». Дальше — только из меню Пуск / Запуск.cmd. TUN = UAC.
 
-            **Автообновление:** приложение само проверяет GitHub Releases (Android APK, Windows zip, macOS dmg, Linux zip/AppImage).
+            **Android:** VPN не усыпляется при выключенном экране (wake lock + запрос исключения из оптимизации батареи). Режим туннеля: полный / только выбранные приложения / все кроме выбранных / без TUN.
+
+            **Автообновление:** приложение само проверяет GitHub Releases.
           files: dist/*
           make_latest: true
           overwrite_files: true

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import '../models/server.dart';
+import '../models/tunnel_mode.dart';
 import '../platform/platform_proxy.dart';
 import '../platform/singbox_runner.dart';
 import 'connection_watchdog.dart';
@@ -22,6 +23,8 @@ class ConnectionService {
 
   VpnServer? connectedServer;
   bool tunMode = false;
+  TunnelMode tunnelMode = TunnelMode.fullVpn;
+  List<String> tunnelAppIds = [];
   bool autoReconnect = true;
 
   final _events = StreamController<ConnectionEvent>.broadcast();
@@ -37,9 +40,16 @@ class ConnectionService {
     await disconnect(stopWatchdog: false);
     final resolved = _prepareServer(server);
     try {
-      final config = SingboxConfigBuilder.build(resolved, tunMode: tunMode);
-      await _runner.start(config, tunMode: tunMode);
-      if (!tunMode && !Platform.isAndroid && !Platform.isIOS) {
+      final useTun = tunnelMode.usesTun;
+      tunMode = useTun;
+      final config = SingboxConfigBuilder.build(resolved, tunMode: useTun);
+      await _runner.start(
+        config,
+        tunMode: useTun,
+        tunnelMode: tunnelMode,
+        tunnelAppIds: tunnelAppIds,
+      );
+      if (!useTun && !Platform.isAndroid && !Platform.isIOS) {
         try {
           await _proxy.enable(host: '127.0.0.1', port: SingboxConfigBuilder.localPort);
         } catch (_) {}

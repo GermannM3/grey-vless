@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../models/server.dart';
+import '../models/tunnel_mode.dart';
 import '../services/auto_connect_service.dart';
 import '../services/connection_service.dart';
 import '../services/grey_sense_service.dart';
@@ -13,7 +14,9 @@ import '../services/ping_service.dart';
 import '../services/subscription.dart';
 import '../services/update_preferences.dart';
 import '../services/update_service.dart';
+import '../platform/android_native.dart';
 import '../state/app_state.dart';
+import 'app_picker_screen.dart';
 import 'app_screen.dart';
 import 'app_theme.dart';
 import 'country_flag.dart';
@@ -256,22 +259,84 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   Text('Настройки', style: Theme.of(ctx).textTheme.titleLarge),
                   const SizedBox(height: 8),
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: Text(Platform.isAndroid ? 'TUN — полный VPN' : 'TUN (полный VPN)'),
-                    subtitle: Text(
-                      Platform.isAndroid
-                          ? 'Весь трафик (Telegram, браузер). Без TUN работает только проверка серверов.'
-                          : Platform.isLinux
-                              ? 'Полный VPN через TUN (нужен setcap). Без TUN — системный прокси GNOME.'
-                              : Platform.isWindows
-                                  ? 'Весь трафик через VPN. При подключении запросит права администратора (UAC).'
-                                  : 'Весь трафик через VPN',
-                      style: const TextStyle(fontSize: 12, color: AppTheme.textMuted),
+                  Text('Режим туннеля', style: Theme.of(ctx).textTheme.titleMedium),
+                  const SizedBox(height: 4),
+                  ...TunnelMode.values.map((mode) {
+                    final desktopNote = !Platform.isAndroid && mode.needsAppList;
+                    return RadioListTile<TunnelMode>(
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                      title: Text(mode.title, style: const TextStyle(fontSize: 14)),
+                      subtitle: Text(
+                        desktopNote
+                            ? '${mode.subtitle} — маршрутизация по приложениям реально режется на Android; на ПК список сохраняется, но для работы нужен полный VPN/прокси.'
+                            : mode.subtitle,
+                        style: const TextStyle(fontSize: 11, color: AppTheme.textMuted),
+                      ),
+                      value: mode,
+                      groupValue: state.tunnelMode,
+                      onChanged: _busy
+                          ? null
+                          : (v) async {
+                              if (v == null) return;
+                              if (!Platform.isAndroid && v.needsAppList) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text(
+                                      'На Windows/Linux per-app через TUN недоступен. Список приложений можно сохранить; для трафика выберите «Полный VPN» или «Системный прокси».',
+                                    ),
+                                  ),
+                                );
+                              }
+                              await state.setTunnelMode(v);
+                            },
+                    );
+                  }),
+                  ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.apps),
+                      title: const Text('Приложения для туннеля'),
+                      subtitle: Text(
+                        state.tunnelAppIds.isEmpty
+                            ? 'Список подгружается из системы'
+                            : 'Выбрано: ${state.tunnelAppIds.length}',
+                        style: const TextStyle(fontSize: 12, color: AppTheme.textMuted),
+                      ),
+                      onTap: _busy
+                          ? null
+                          : () async {
+                              Navigator.pop(ctx);
+                              final picked = await Navigator.of(context).push<List<String>>(
+                                MaterialPageRoute(
+                                  builder: (_) => AppPickerScreen(
+                                    initialSelected: state.tunnelAppIds,
+                                    title: state.tunnelMode == TunnelMode.bypassApps
+                                        ? 'Мимо VPN'
+                                        : 'Через VLESS',
+                                  ),
+                                ),
+                              );
+                              if (picked != null) {
+                                await state.setTunnelAppIds(picked);
+                              }
+                            },
                     ),
-                    value: state.tunMode,
-                    onChanged: _busy ? null : (v) => state.setTunMode(v),
-                  ),
+                  if (Platform.isAndroid)
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.battery_saver_outlined),
+                      title: const Text('Не усыплять VPN'),
+                      subtitle: const Text(
+                        'Исключить из оптимизации батареи — нужно при выключенном экране',
+                        style: TextStyle(fontSize: 12, color: AppTheme.textMuted),
+                      ),
+                      onTap: () async {
+                        Navigator.pop(ctx);
+                        try {
+                          await AndroidNative.requestIgnoreBatteryOptimizations();
+                        } catch (_) {}
+                      },
+                    ),
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
                     title: const Text('Автоподключение при запуске'),

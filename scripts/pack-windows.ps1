@@ -1,4 +1,4 @@
-# Упаковка Windows: portable zip + установщик без MotW (для закрепления на панели).
+# Упаковка Windows: portable zip + автоустановка в LocalAppData (без MotW).
 $ErrorActionPreference = "Stop"
 $Release = "grey_vless/build/windows/x64/runner/Release"
 $OutDir = "dist/windows-pack"
@@ -12,7 +12,6 @@ Remove-Item -Recurse -Force $OutDir -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Path $OutDir | Out-Null
 Copy-Item -Path "$Release/*" -Destination $OutDir -Recurse -Force
 
-# Снять Mark of the Web со всех файлов сборки (если есть)
 Get-ChildItem -Path $OutDir -Recurse -File | ForEach-Object {
   Unblock-File -Path $_.FullName -ErrorAction SilentlyContinue
 }
@@ -20,24 +19,19 @@ Get-ChildItem -Path $OutDir -Recurse -File | ForEach-Object {
 @'
 Grey vless — Windows
 
-=== Как правильно поставить (чтобы TUN и закрепление на панели работали) ===
+ВАЖНО: не запускайте grey_vless.exe из Downloads после перезагрузки —
+Windows часто блокирует такие файлы.
 
-1. Запустите Установить.cmd (двойной клик).
-2. Подтвердите UAC при необходимости.
-3. Ярлык появится в меню Пуск: «Grey vless».
-4. Закрепляйте на панели ИЗ меню Пуск, не из папки Downloads.
+1. Запустите Установить.cmd (один раз).
+2. Дальше открывайте «Grey vless» из меню Пуск или «Запуск.cmd»
+   в %LOCALAPPDATA%\Programs\Grey-vless.
 
-Установщик копирует приложение в %LOCALAPPDATA%\Programs\Grey-vless,
-снимает метку «из Интернета» (MotW) и создаёт ярлык без блокировки.
+Приложение само перенесёт себя туда при первом запуске из Downloads.
 
-=== Быстрый запуск без установки ===
+Режимы: полный VPN (TUN, нужен UAC) или системный прокси.
+Per-app туннель (только выбранные приложения) — в Android-версии.
 
-grey_vless.exe — рядом должны лежать dll и папка data.
-
-Без TUN: системный прокси 127.0.0.1:7890.
-С TUN: нужен запуск от администратора (приложение само запросит UAC).
-
-Автообновление тянет новые сборки с GitHub Releases.
+Автообновление тянет сборки с GitHub Releases.
 '@ | Set-Content -Path "$OutDir/ЧИТАЙ_МЕНЯ.txt" -Encoding UTF8
 
 @'
@@ -48,12 +42,21 @@ if errorlevel 1 pause
 '@ | Set-Content -Path "$OutDir/Установить.cmd" -Encoding ASCII
 
 @'
+@echo off
+chcp 65001 >nul
+cd /d "%~dp0"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-ChildItem -LiteralPath '%~dp0' -Recurse -File | Unblock-File -ErrorAction SilentlyContinue"
+start "" "%~dp0grey_vless.exe"
+'@ | Set-Content -Path "$OutDir/Запуск.cmd" -Encoding ASCII
+
+@'
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Target = Join-Path $env:LOCALAPPDATA "Programs\Grey-vless"
 $ExeName = "grey_vless.exe"
 $StartMenu = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs"
 $ShortcutPath = Join-Path $StartMenu "Grey vless.lnk"
+$Launcher = Join-Path $Target "Запуск.cmd"
 
 Write-Host "Установка Grey vless в:"
 Write-Host "  $Target"
@@ -63,32 +66,34 @@ Copy-Item -Path (Join-Path $Root "*") -Destination $Target -Recurse -Force
 
 Get-ChildItem -Path $Target -Recurse -File | ForEach-Object {
   Unblock-File -Path $_.FullName -ErrorAction SilentlyContinue
-  # На всякий случай снять Zone.Identifier ADS
   $zone = $_.FullName + ":Zone.Identifier"
   if (Test-Path $zone) { Remove-Item $zone -Force -ErrorAction SilentlyContinue }
 }
 
 $Wsh = New-Object -ComObject WScript.Shell
 $Sc = $Wsh.CreateShortcut($ShortcutPath)
-$Sc.TargetPath = Join-Path $Target $ExeName
+$Sc.TargetPath = $Launcher
 $Sc.WorkingDirectory = $Target
 $Sc.Description = "Grey vless"
 $Sc.IconLocation = (Join-Path $Target $ExeName)
 $Sc.Save()
 [System.Runtime.Interopservices.Marshal]::ReleaseComObject($Wsh) | Out-Null
 
-# Снять MotW с ярлыка
 Unblock-File -Path $ShortcutPath -ErrorAction SilentlyContinue
 $lnkZone = $ShortcutPath + ":Zone.Identifier"
 if (Test-Path $lnkZone) { Remove-Item $lnkZone -Force -ErrorAction SilentlyContinue }
 
+# Run key — после логина в Windows приложение доступно из установленного пути
+$runKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
+# Не автостартуем VPN, только фиксируем путь ярлыка не нужен в Run.
+# (автоподключение — внутри приложения)
+
 Write-Host ""
-Write-Host "Готово. Ярлык: меню Пуск → Grey vless"
-Write-Host "Закрепите на панели задач из меню Пуск (ПКМ → Закрепить)."
+Write-Host "Готово. Меню Пуск → Grey vless (Запуск.cmd снимает блокировку)."
 Write-Host ""
 $launch = Read-Host "Запустить сейчас? (Y/n)"
 if ($launch -eq "" -or $launch -match "^[YyДд]") {
-  Start-Process -FilePath (Join-Path $Target $ExeName)
+  Start-Process -FilePath $Launcher
 }
 '@ | Set-Content -Path "$OutDir/install.ps1" -Encoding UTF8
 

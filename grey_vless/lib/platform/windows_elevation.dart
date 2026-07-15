@@ -2,6 +2,8 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
+import 'windows_install.dart';
+
 /// Проверка и запрос прав администратора на Windows (нужны для TUN/WinTun).
 class WindowsElevation {
   WindowsElevation._();
@@ -21,10 +23,16 @@ class WindowsElevation {
   }
 
   /// Перезапускает текущий exe через UAC. При отмене UAC бросает исключение.
+  /// Если уже установлены в LocalAppData — поднимаем оттуда.
   static Future<void> relaunchElevated() async {
     if (!Platform.isWindows) return;
-    final exe = Platform.resolvedExecutable.replaceAll("'", "''");
-    final dir = p.dirname(Platform.resolvedExecutable).replaceAll("'", "''");
+    var exePath = Platform.resolvedExecutable;
+    final install = WindowsInstall.installExe;
+    if (await File(install).exists()) {
+      exePath = install;
+    }
+    final exe = exePath.replaceAll("'", "''");
+    final dir = p.dirname(exePath).replaceAll("'", "''");
     final r = await Process.run(
       'powershell',
       [
