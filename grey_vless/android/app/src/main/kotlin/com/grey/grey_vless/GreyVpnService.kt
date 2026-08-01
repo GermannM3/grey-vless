@@ -225,13 +225,24 @@ class GreyVpnService : VpnService() {
         allowed: List<String>,
         disallowed: List<String>,
     ) {
-        if (!File(configPath).exists() || !File(binaryPath).exists()) {
-            throw IllegalStateException("config/binary missing after restart")
+        // Ещё раз кладём конфиг в filesDir — защита от ENOENT (copy-сам-в-себя / чистка codeCache).
+        val readyConfig = try {
+            SingboxHelper.prepareConfig(this, configPath)
+        } catch (e: Exception) {
+            throw IllegalStateException("config missing: $configPath (${e.message})")
+        }
+        val readyBinary = try {
+            SingboxHelper.resolveBinary(this)
+        } catch (e: Exception) {
+            if (!File(binaryPath).exists()) {
+                throw IllegalStateException("binary missing: $binaryPath")
+            }
+            binaryPath
         }
 
-        singboxProcess = ProcessBuilder(binaryPath, "run", "-c", configPath)
+        singboxProcess = ProcessBuilder(readyBinary, "run", "-c", readyConfig)
             .redirectErrorStream(true)
-            .directory(File(binaryPath).parentFile)
+            .directory(File(readyBinary).parentFile)
             .start()
 
         // Не на main thread — sleep ок.

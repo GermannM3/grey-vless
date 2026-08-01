@@ -365,10 +365,17 @@ class SingboxRunner {
       }
     }
     if (_configPath != null) {
-      try {
-        final file = File(_configPath!);
-        if (await file.exists()) await file.delete();
-      } catch (_) {}
+      // На Android конфиг в filesDir/configs — его читает VpnService асинхронно.
+      // Удаление даёт ENOENT. Чистим только temp-копии Flutter.
+      final path = _configPath!;
+      final isAndroidOwned = Platform.isAndroid &&
+          (path.contains('/files/configs/') || path.contains('/code_cache/configs/'));
+      if (!isAndroidOwned) {
+        try {
+          final file = File(path);
+          if (await file.exists()) await file.delete();
+        } catch (_) {}
+      }
       _configPath = null;
     }
     if (_logPath != null) {

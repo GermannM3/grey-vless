@@ -28,13 +28,60 @@ object SingboxHelper {
     fun prepareExecutable(context: Context, @Suppress("UNUSED_PARAMETER") sourcePath: String): String =
         resolveBinary(context)
 
+    /**
+     * Копирует конфиг в filesDir (не codeCache — система может чистить).
+     * Никогда не делает copy файла в самого себя (иначе ENOENT / пустой файл).
+     */
     fun prepareConfig(context: Context, sourcePath: String): String {
         val source = File(sourcePath)
-        if (!source.exists()) {
+        if (!source.exists() || source.length() == 0L) {
             throw IOException("Конфиг не найден: $sourcePath")
         }
-        val configDir = File(context.codeCacheDir, "configs").apply { mkdirs() }
-        // Один active.json — не копить active-*.json
+        // filesDir стабильнее codeCacheDir (тот OS чистит → ENOENT).
+        val configDir = File(context.filesDir, "configs").apply { mkdirs() }
+        val dest = File(configDir, "active.json")
+
+        val srcCanon = try {
+            source.canonicalPath
+        } catch (_: Exception) {
+            source.absolutePath
+        }
+        val dstCanon = try {
+            dest.canonicalPath
+        } catch (_: Exception) {
+            dest.absolutePath
+        }
+
+        if (srcCanon == dstCanon) {
+            // Уже наш active.json — не копируем сам в себя.
+            dest.setReadable(true, false)
+            return dest.absolutePath
+        }
+
+        // Пишем через temp + rename, чтобы не было полупустого active.json.
+        val tmp = File(configDir, "active.tmp")
+        try {
+            if (tmp.exists()) tmp.delete()
+            source.copyTo(tmp, overwrite = true)
+            if (dest.exists()) dest.delete()
+            if (!tmp.renameTo(dest)) {
+                tmp.copyTo(dest, overwrite = true)
+                tmp.delete()
+            }
+        } catch (e: Exception) {
+            try {
+                tmp.delete()
+            } catch (_: Exception) {
+            }
+            throw IOException("Не удалось сохранить конфиг: ${e.message}", e)
+        }
+
+        dest.setReadable(true, false)
+        if (!dest.exists() || dest.length() == 0L) {
+            throw IOException("Конфиг пуст после копирования: ${dest.absolutePath}")
+        }
+
+        // Старые active-*.json из прошлых сборок.
         configDir.listFiles()?.forEach { f ->
             if (f.name.startsWith("active-") && f.name.endsWith(".json")) {
                 try {
@@ -43,14 +90,27 @@ object SingboxHelper {
                 }
             }
         }
-        val dest = File(configDir, "active.json")
-        source.copyTo(dest, overwrite = true)
-        dest.setReadable(true, false)
+        // codeCache configs — подчистить, чтобы не путаться со старым путём.
+        try {
+            File(context.codeCacheDir, "configs").listFiles()?.forEach { f ->
+                try {
+                    f.delete()
+                } catch (_: Exception) {
+                }
+            }
+        } catch (_: Exception) {
+        }
+
+        Log.i(TAG, "config ready: ${dest.absolutePath} (${dest.length()} bytes)")
         return dest.absolutePath
     }
 
     fun check(context: Context, binaryPath: String, configPath: String): Map<String, Any> {
         val binary = if (File(binaryPath).exists()) binaryPath else resolveBinary(context)
+        val cfg = File(configPath)
+        if (!cfg.exists()) {
+            return mapOf("exitCode" to 1, "output" to "config missing: $configPath")
+        }
         return try {
             val process = ProcessBuilder(binary, "check", "-c", configPath)
                 .redirectErrorStream(true)
@@ -88,9 +148,10 @@ object SingboxHelper {
     fun startProxy(context: Context, binaryPath: String, configPath: String) {
         stopProxy()
         val binary = if (File(binaryPath).exists()) binaryPath else resolveBinary(context)
-        val logFile = File(context.codeCacheDir, LOG_NAME)
+        val readyConfig = prepareConfig(context, configPath)
+        val logFile = File(context.filesDir, LOG_NAME)
         logFile.writeText("")
-        proxyProcess = ProcessBuilder(binary, "run", "-c", configPath)
+        proxyProcess = ProcessBuilder(binary, "run", "-c", readyConfig)
             .redirectErrorStream(true)
             .redirectOutput(ProcessBuilder.Redirect.appendTo(logFile))
             .directory(File(binary).parentFile)
@@ -113,8 +174,13 @@ object SingboxHelper {
     fun isProxyRunning(): Boolean = proxyProcess?.isAlive == true
 
     fun getLastLog(context: Context): String {
-        val logFile = File(context.codeCacheDir, LOG_NAME)
-        if (!logFile.exists()) return ""
+        val primary = File(context.filesDir, LOG_NAME)
+        val fallback = File(context.codeCacheDir, LOG_NAME)
+        val logFile = when {
+            primary.exists() -> primary
+            fallback.exists() -> fallback
+            else -> return ""
+        }
         return logFile.readText().takeLast(2000).trim()
     }
 }
