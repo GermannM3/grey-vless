@@ -25,16 +25,20 @@ class SingboxRunner {
   bool get isRunning => _androidVpn || _androidProxy || (_process != null && _alive);
 
   Future<bool> _portOpen() async {
+    Socket? socket;
     try {
-      final socket = await Socket.connect(
+      socket = await Socket.connect(
         '127.0.0.1',
         SingboxConfigBuilder.localPort,
         timeout: const Duration(milliseconds: 400),
-      );
-      await socket.close();
+      ).timeout(const Duration(milliseconds: 600));
       return true;
     } catch (_) {
       return false;
+    } finally {
+      try {
+        socket?.destroy();
+      } catch (_) {}
     }
   }
 
@@ -220,23 +224,27 @@ class SingboxRunner {
         allowedApps: allowed,
         disallowedApps: disallowed,
       );
-      _androidVpn = true;
-      // Сервис стартует асинхронно — ждём порт до ~10 с.
+      // Сервис стартует асинхронно — ждём порт до ~15 с (не socket.close — зависает на OEM).
       var sawVpn = false;
-      for (var i = 0; i < 40; i++) {
+      for (var i = 0; i < 60; i++) {
         await Future.delayed(const Duration(milliseconds: 250));
-        if (await _portOpen()) return;
+        if (await _portOpen()) {
+          _androidVpn = true;
+          return;
+        }
         if (await AndroidNative.isVpnActive()) sawVpn = true;
-        // После ~4с без VPN — нет смысла ждать дальше.
-        if (i >= 16 && !sawVpn) break;
+        // VPN так и не поднялся за ~5с.
+        if (i >= 20 && !sawVpn) break;
       }
       if (!await _portOpen()) {
         await stop();
         throw Exception(
-          'VPN не поднялся (прокси 127.0.0.1:${SingboxConfigBuilder.localPort} недоступен). '
-          'Проверьте разрешение VPN и что другой VPN не активен.',
+          sawVpn
+              ? 'VPN-интерфейс есть, но прокси 127.0.0.1:${SingboxConfigBuilder.localPort} молчит. Переустановите APK из последнего релиза.'
+              : 'VPN не поднялся. Разрешите VPN в системе и убедитесь, что другой VPN выключен.',
         );
       }
+      _androidVpn = true;
       return;
     }
 

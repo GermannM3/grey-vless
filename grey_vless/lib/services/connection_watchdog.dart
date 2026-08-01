@@ -117,16 +117,20 @@ class ConnectionWatchdog {
   }
 
   Future<bool> _localPortOpen() async {
+    Socket? socket;
     try {
-      final socket = await Socket.connect(
+      socket = await Socket.connect(
         '127.0.0.1',
         SingboxConfigBuilder.localPort,
-        timeout: const Duration(seconds: 3),
-      );
-      await socket.close();
+        timeout: const Duration(seconds: 2),
+      ).timeout(const Duration(seconds: 3));
       return true;
     } catch (_) {
       return false;
+    } finally {
+      try {
+        socket?.destroy();
+      } catch (_) {}
     }
   }
 

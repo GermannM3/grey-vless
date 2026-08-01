@@ -143,7 +143,12 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _run(Future<void> Function() action) async {
     setState(() => _busy = true);
     try {
-      await action();
+      await action().timeout(
+        const Duration(seconds: 45),
+        onTimeout: () => throw TimeoutException(
+          'Подключение зависло (таймаут 45с). Попробуйте ещё раз или смените режим туннеля на «Системный прокси».',
+        ),
+      );
     } on NeedsElevationException {
       if (mounted) await _handleElevation();
     } catch (e) {

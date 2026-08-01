@@ -200,7 +200,8 @@ class UpdateService {
   }
 
   static Future<void> _applyZipUpdate(String zipPath) async {
-    final staging = Directory(p.join((await getTemporaryDirectory()).path, 'grey-vless-update'));
+    final tempRoot = await getTemporaryDirectory();
+    final staging = Directory(p.join(tempRoot.path, 'grey-vless-update'));
     if (await staging.exists()) await staging.delete(recursive: true);
     await staging.create(recursive: true);
 
@@ -208,78 +209,141 @@ class UpdateService {
     final archive = ZipDecoder().decodeBytes(bytes);
     for (final file in archive) {
       if (!file.isFile) continue;
-      final out = File(p.join(staging.path, file.name));
+      // Защита от zip-slip.
+      final name = file.name.replaceAll('\\', '/');
+      if (name.contains('..')) continue;
+      final out = File(p.join(staging.path, name));
       await out.parent.create(recursive: true);
       await out.writeAsBytes(file.content as List<int>);
-      if (Platform.isLinux && (file.name == 'grey_vless' || file.name.endsWith('/grey_vless'))) {
+      if (Platform.isLinux && (p.basename(name) == 'grey_vless')) {
         await Process.run('chmod', ['+x', out.path]);
       }
     }
 
+    // Если в zip одна корневая папка — поднимаем содержимое наверх.
+    await _flattenSingleRoot(staging);
+
     if (Platform.isWindows) {
-      // Всегда в %LOCALAPPDATA%\Programs\Grey-vless — не поверх Downloads.
-      final target = WindowsInstall.installDir.replaceAll("'", "''");
-      final stage = staging.path.replaceAll("'", "''");
-      final exePath = WindowsInstall.installExe.replaceAll("'", "''");
-      final script = File(p.join(staging.path, '_update.ps1'));
-      await script.writeAsString('''
-\$ErrorActionPreference = 'Stop'
+      await _applyWindowsZipUpdate(staging);
+      return;
+    }
+
+    final exe = Platform.resolvedExecutable;
+    final installDir = p.dirname(exe);
+    final script = File(p.join(tempRoot.path, 'grey-vless-update.sh'));
+    await script.writeAsString('''
+#!/bin/sh
+set -e
+sleep 2
+test -x "${staging.path}/grey_vless" -o -f "${staging.path}/grey_vless" || exit 1
+cp -a "${staging.path}"/. "$installDir"/
+exec "$exe"
+''');
+    await Process.run('chmod', ['+x', script.path]);
+    await Process.start('/bin/sh', [script.path], mode: ProcessStartMode.detached);
+    await Future<void>.delayed(const Duration(milliseconds: 400));
+    exit(0);
+  }
+
+  static Future<void> _flattenSingleRoot(Directory staging) async {
+    final kids = staging.listSync().whereType<Directory>().toList();
+    final files = staging.listSync().whereType<File>().toList();
+    if (kids.length != 1 || files.isNotEmpty) return;
+    final only = kids.first;
+    final hasExe = File(p.join(only.path, 'grey_vless.exe')).existsSync() ||
+        File(p.join(only.path, 'grey_vless')).existsSync();
+    if (!hasExe) return;
+    for (final entity in only.listSync()) {
+      final dest = p.join(staging.path, p.basename(entity.path));
+      if (entity is Directory) {
+        await Directory(dest).create(recursive: true);
+        await Process.run(
+          Platform.isWindows ? 'robocopy' : 'cp',
+          Platform.isWindows
+              ? [entity.path, dest, '/E', '/NFL', '/NDL', '/NJH', '/NJS', '/NP']
+              : ['-a', entity.path, dest],
+        );
+      } else if (entity is File) {
+        await entity.copy(dest);
+      }
+    }
+    await only.delete(recursive: true);
+  }
+
+  /// Windows: скрипт в TEMP + `cmd start`, иначе процесс умирает вместе с Flutter.
+  static Future<void> _applyWindowsZipUpdate(Directory staging) async {
+    final tempRoot = await getTemporaryDirectory();
+    final target = WindowsInstall.installDir.replaceAll("'", "''");
+    final stage = staging.path.replaceAll("'", "''");
+    final exePath = WindowsInstall.installExe.replaceAll("'", "''");
+    final logPath = p.join(tempRoot.path, 'grey-vless-update.log').replaceAll("'", "''");
+
+    final script = File(p.join(tempRoot.path, 'grey-vless-apply-update.ps1'));
+    await script.writeAsString('''
+\$ErrorActionPreference = 'Continue'
+\$log = '$logPath'
+function W(\$m) { Add-Content -Path \$log -Value ("[{0}] {1}" -f (Get-Date -Format o), \$m) }
+W 'update start'
 Start-Sleep -Seconds 2
-taskkill /F /IM grey_vless.exe /T 2>\$null
-taskkill /F /IM sing-box.exe /T 2>\$null
+taskkill /F /IM grey_vless.exe /T 2>\$null | Out-Null
+taskkill /F /IM sing-box.exe /T 2>\$null | Out-Null
 Start-Sleep -Seconds 1
 New-Item -ItemType Directory -Force -Path '$target' | Out-Null
-\$rc = Start-Process -FilePath robocopy -ArgumentList @(
-  '$stage', '$target', '/E', '/IS', '/IT', '/R:3', '/W:1',
+\$rc = (Start-Process -FilePath robocopy -ArgumentList @(
+  '$stage', '$target', '/E', '/IS', '/IT', '/R:5', '/W:1',
   '/NFL', '/NDL', '/NJH', '/NJS', '/NP',
-  '/XF', '_update.ps1', '_update.bat', '_update.sh', 'ЧИТАЙ_МЕНЯ.txt', 'Установить.cmd', 'install.ps1'
-) -Wait -PassThru
-if (\$rc.ExitCode -ge 8) {
-  Copy-Item -Path '$stage\\*' -Destination '$target' -Recurse -Force
+  '/XF', '_update.ps1', '_update.bat', '_update.sh', 'ЧИТАЙ_МЕНЯ.txt', 'Установить.cmd', 'install.ps1', 'grey-vless-apply-update.ps1'
+) -Wait -PassThru -WindowStyle Hidden).ExitCode
+W ("robocopy exit=" + \$rc)
+if (\$rc -ge 8) {
+  Copy-Item -Path '$stage\\*' -Destination '$target' -Recurse -Force -ErrorAction SilentlyContinue
+  W 'fallback Copy-Item'
 }
-Get-ChildItem -LiteralPath '$target' -Recurse -File | ForEach-Object {
+Get-ChildItem -LiteralPath '$target' -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object {
   Unblock-File -LiteralPath \$_.FullName -ErrorAction SilentlyContinue
   \$z = \$_.FullName + ':Zone.Identifier'
   if (Test-Path -LiteralPath \$z) { Remove-Item -LiteralPath \$z -Force -ErrorAction SilentlyContinue }
 }
 \$launcher = Join-Path '$target' 'Запуск.cmd'
-if (-not (Test-Path \$launcher)) {
-  @"
+@"
 @echo off
 cd /d "%~dp0"
 start "" "%~dp0grey_vless.exe"
 "@ | Set-Content -Path \$launcher -Encoding ASCII
-}
 \$startMenu = Join-Path \$env:APPDATA 'Microsoft\\Windows\\Start Menu\\Programs\\Grey vless.lnk'
-\$Wsh = New-Object -ComObject WScript.Shell
-\$Sc = \$Wsh.CreateShortcut(\$startMenu)
-\$Sc.TargetPath = \$launcher
-\$Sc.WorkingDirectory = '$target'
-\$Sc.IconLocation = '$exePath'
-\$Sc.Save()
+try {
+  \$Wsh = New-Object -ComObject WScript.Shell
+  \$Sc = \$Wsh.CreateShortcut(\$startMenu)
+  \$Sc.TargetPath = \$launcher
+  \$Sc.WorkingDirectory = '$target'
+  \$Sc.IconLocation = '$exePath'
+  \$Sc.Save()
+} catch { W ("shortcut: " + \$_.Exception.Message) }
+if (-not (Test-Path -LiteralPath '$exePath')) {
+  W 'EXE missing after copy — abort'
+  exit 1
+}
+W 'starting app'
 Start-Process -FilePath '$exePath' -WorkingDirectory '$target'
+W 'done'
 ''');
-      await Process.start(
-        'powershell',
-        ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script.path],
-        mode: ProcessStartMode.detached,
-      );
-      exit(0);
-    }
 
-    final exe = Platform.resolvedExecutable;
-    final installDir = p.dirname(exe);
-    final script = File(p.join(staging.path, '_update.sh'));
-    await script.writeAsString('''
-#!/bin/sh
-set -e
-sleep 2
-test -x "$staging.path/grey_vless" -o -f "$staging.path/grey_vless" || exit 1
-cp -a "$staging.path"/. "$installDir"/
-exec "$exe"
+    // bat через `start` — новый process tree, не убивается при exit Flutter.
+    final bat = File(p.join(tempRoot.path, 'grey-vless-apply-update.bat'));
+    final ps1 = script.path;
+    await bat.writeAsString('''
+@echo off
+timeout /t 1 /nobreak >nul
+powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "$ps1"
 ''');
-    await Process.run('chmod', ['+x', script.path]);
-    await Process.start('/bin/sh', [script.path], mode: ProcessStartMode.detached);
+
+    await Process.start(
+      'cmd.exe',
+      ['/c', 'start', '', '/min', bat.path],
+      mode: ProcessStartMode.detached,
+      workingDirectory: tempRoot.path,
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 600));
     exit(0);
   }
 }

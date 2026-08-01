@@ -56,9 +56,26 @@ object SingboxHelper {
                 .redirectErrorStream(true)
                 .directory(File(binary).parentFile)
                 .start()
-            val output = process.inputStream.bufferedReader().readText()
-            val code = process.waitFor()
-            mapOf("exitCode" to code, "output" to output.trim())
+            val output = StringBuilder()
+            val reader = Thread {
+                try {
+                    process.inputStream.bufferedReader().use { br ->
+                        var line: String?
+                        while (br.readLine().also { line = it } != null) {
+                            output.appendLine(line)
+                        }
+                    }
+                } catch (_: Exception) {
+                }
+            }.apply { isDaemon = true; start() }
+            val finished = process.waitFor(8, java.util.concurrent.TimeUnit.SECONDS)
+            if (!finished) {
+                process.destroyForcibly()
+                reader.join(500)
+                return mapOf("exitCode" to 1, "output" to "sing-box check timeout")
+            }
+            reader.join(1000)
+            mapOf("exitCode" to process.exitValue(), "output" to output.toString().trim())
         } catch (e: Exception) {
             Log.e(TAG, "singbox check failed", e)
             mapOf("exitCode" to 1, "output" to (e.message ?: "Permission denied"))
