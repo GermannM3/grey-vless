@@ -117,6 +117,11 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> setPendingConnectAfterElevate(int? index) =>
+      _settings.setPendingConnectAfterElevate(index);
+
+  int? get pendingConnectIndex => _settings.pendingConnectIndex;
+
   /// Свежее значение из SharedPreferences — не полагаемся на кэш в памяти.
   bool get autoConnectEnabled => _settings.autoConnect;
 

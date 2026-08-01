@@ -17,6 +17,8 @@ class SettingsRepository {
   static const _kAutoConnect = 'auto_connect';
   static const _kAutoReconnect = 'auto_reconnect';
   static const _kGreySense = 'grey_sense_enabled';
+  static const _kPendingConnectIndex = 'pending_connect_index';
+  static const _kPendingConnectAfterElevate = 'pending_connect_elevate';
 
   SharedPreferences? _prefs;
 
@@ -77,6 +79,23 @@ class SettingsRepository {
   Future<void> saveAutoConnect(bool value) async => prefs.setBool(_kAutoConnect, value);
   Future<void> saveAutoReconnect(bool value) async => prefs.setBool(_kAutoReconnect, value);
   Future<void> saveGreySenseEnabled(bool value) async => prefs.setBool(_kGreySense, value);
+
+  /// После UAC-перезапуска — продолжить подключение к этому индексу сервера.
+  int? get pendingConnectIndex {
+    if (prefs.getBool(_kPendingConnectAfterElevate) != true) return null;
+    if (!prefs.containsKey(_kPendingConnectIndex)) return null;
+    return prefs.getInt(_kPendingConnectIndex);
+  }
+
+  Future<void> setPendingConnectAfterElevate(int? serverIndex) async {
+    if (serverIndex == null) {
+      await prefs.setBool(_kPendingConnectAfterElevate, false);
+      await prefs.remove(_kPendingConnectIndex);
+    } else {
+      await prefs.setBool(_kPendingConnectAfterElevate, true);
+      await prefs.setInt(_kPendingConnectIndex, serverIndex);
+    }
+  }
 
   int? get selectedIndex {
     if (!prefs.containsKey(_kSelectedIndex)) return null;

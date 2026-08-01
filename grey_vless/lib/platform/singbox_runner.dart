@@ -113,9 +113,10 @@ class SingboxRunner {
   Future<void> _killOrphanSingbox() async {
     try {
       if (Platform.isWindows) {
-        await Process.run('taskkill', ['/F', '/IM', 'sing-box.exe'], runInShell: true);
+        await Process.run('taskkill', ['/F', '/IM', 'sing-box.exe'], runInShell: true)
+            .timeout(const Duration(seconds: 3));
       } else if (Platform.isLinux || Platform.isMacOS) {
-        await Process.run('pkill', ['-f', 'sing-box']);
+        await Process.run('pkill', ['-f', 'sing-box']).timeout(const Duration(seconds: 3));
       }
     } catch (_) {}
   }
@@ -151,11 +152,10 @@ class SingboxRunner {
     TunnelMode tunnelMode = TunnelMode.fullVpn,
     List<String> tunnelAppIds = const [],
   }) async {
-    // Elevation ДО stop — иначе рвём сессию и уходим в UAC без reconnect.
+    // Elevation: не блокируем UI на UAC — бросаем NeedsElevationException для диалога.
     if (Platform.isWindows && tunMode) {
       if (!await WindowsElevation.isElevated()) {
-        await WindowsElevation.relaunchElevated();
-        return;
+        throw NeedsElevationException();
       }
     }
 
@@ -202,7 +202,8 @@ class SingboxRunner {
         );
       }
     } else {
-      final check = await Process.run(binary, ['check', '-c', configPath]);
+      final check = await Process.run(binary, ['check', '-c', configPath])
+          .timeout(const Duration(seconds: 8));
       if (check.exitCode != 0) {
         final err = '${check.stderr}${check.stdout}'.trim();
         throw Exception('Конфиг sing-box невалиден: ${err.isEmpty ? "проверьте сервер" : err}');

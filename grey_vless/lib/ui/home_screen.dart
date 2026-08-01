@@ -15,6 +15,7 @@ import '../services/subscription.dart';
 import '../services/update_preferences.dart';
 import '../services/update_service.dart';
 import '../platform/android_native.dart';
+import '../platform/windows_elevation.dart';
 import '../state/app_state.dart';
 import 'app_picker_screen.dart';
 import 'app_screen.dart';
@@ -44,8 +45,26 @@ class _HomeScreenState extends State<HomeScreen> {
       _checkForUpdates(silent: true);
       final state = context.read<AppState>();
       _connSub = state.connection.events.listen(_onConnectionEvent);
-      await _tryAutoConnect(state);
+      final resumed = await _resumeAfterElevate(state);
+      if (!resumed) {
+        await _tryAutoConnect(state);
+      }
     });
+  }
+
+  /// После UAC-перезапуска продолжаем connect без второго зависания.
+  Future<bool> _resumeAfterElevate(AppState state) async {
+    final idx = state.pendingConnectIndex;
+    if (idx == null) return false;
+    await state.setPendingConnectAfterElevate(null);
+    if (idx < 0 || idx >= state.servers.length) return false;
+    if (!await WindowsElevation.isElevated()) {
+      _snack('UAC отменён — TUN не запущен. Нажмите «Подключить» ещё раз или выберите системный прокси.');
+      return false;
+    }
+    await state.setSelectedIndex(idx);
+    await _run(() => state.connection.connect(state.servers[idx]));
+    return true;
   }
 
   Future<void> _tryAutoConnect(AppState state, {bool force = false}) async {
@@ -68,6 +87,8 @@ class _HomeScreenState extends State<HomeScreen> {
         case AutoConnectSkipped():
           break;
       }
+    } on NeedsElevationException {
+      if (mounted) await _handleElevation();
     } catch (e) {
       if (mounted) _snack(_shortError(e), bg: Colors.red.shade800);
     } finally {
@@ -123,8 +144,12 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() => _busy = true);
     try {
       await action();
+    } on NeedsElevationException {
+      if (mounted) await _handleElevation();
     } catch (e) {
-      if (mounted) {
+      if (e is NeedsElevationException) {
+        if (mounted) await _handleElevation();
+      } else if (mounted) {
         _snack(_shortError(e), bg: Colors.red.shade800);
       }
     } finally {
@@ -132,7 +157,33 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Future<void> _handleElevation() async {
+    final state = context.read<AppState>();
+    final idx = state.selectedIndex ??
+        (state.servers.isEmpty ? null : 0);
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Нужны права администратора'),
+        content: const Text(
+          'Режим TUN на Windows требует UAC.\n'
+          'Приложение перезапустится с правами администратора и подключится само.\n\n'
+          'Если не хотите UAC — в настройках выберите «Системный прокси».',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Отмена')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Продолжить')),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    await state.setPendingConnectAfterElevate(idx);
+    _snack('Подтвердите UAC…');
+    await WindowsElevation.relaunchElevated();
+  }
+
   String _shortError(Object e) {
+    if (e is NeedsElevationException) return e.message;
     final s = e.toString();
     if (s.startsWith('Exception: ')) return s.substring(11);
     return s;

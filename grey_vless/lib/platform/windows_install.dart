@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
@@ -65,7 +66,8 @@ Get-CimInstance Win32_Process -Filter "Name='grey_vless.exe' OR Name='sing-box.e
   static Future<bool> ensureInstalledAndRelaunch() async {
     if (!Platform.isWindows) return false;
     if (isInstalledPath) {
-      await unblockTree(installDir);
+      // Не блокируем старт полным Unblock — только быстро и в фоне.
+      unawaited(unblockTree(installDir));
       return false;
     }
 
