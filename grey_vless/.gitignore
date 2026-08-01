@@ -44,5 +44,5 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 /android/key.properties
-/android/keystore/
+# grey-vless-release.jks в android/keystore/ — в репозитории (стабильная подпись APK)
 /app/src/main/jniLibs/

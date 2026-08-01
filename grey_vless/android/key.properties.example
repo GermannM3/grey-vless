@@ -1,4 +1,4 @@
-storePassword=CHANGE_ME
-keyPassword=CHANGE_ME
+storePassword=GreyVlessReleaseKey
+keyPassword=GreyVlessReleaseKey
 keyAlias=grey-vless
 storeFile=../keystore/grey-vless-release.jks

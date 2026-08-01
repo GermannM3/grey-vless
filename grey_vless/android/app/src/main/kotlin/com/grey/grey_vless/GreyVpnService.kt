@@ -16,10 +16,12 @@ import android.os.ParcelFileDescriptor
 import android.os.PowerManager
 import android.util.Log
 import java.io.File
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 
 class GreyVpnService : VpnService() {
     private var tunInterface: ParcelFileDescriptor? = null
@@ -287,7 +289,7 @@ class GreyVpnService : VpnService() {
             }
         }
 
-        tunInterface = builder.establish()
+        tunInterface = establishOnMainThread(builder)
 
         if (tunInterface == null) {
             throw IllegalStateException("VpnService.establish() вернул null")
@@ -319,6 +321,30 @@ class GreyVpnService : VpnService() {
             isDaemon = false
             start()
         }
+    }
+
+    /** establish() только с main thread — иначе OEM вешают процесс (ANR/freeze). */
+    private fun establishOnMainThread(builder: Builder): ParcelFileDescriptor? {
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            return builder.establish()
+        }
+        val latch = CountDownLatch(1)
+        val result = AtomicReference<ParcelFileDescriptor?>()
+        val error = AtomicReference<Exception?>()
+        mainHandler.post {
+            try {
+                result.set(builder.establish())
+            } catch (e: Exception) {
+                error.set(e)
+            } finally {
+                latch.countDown()
+            }
+        }
+        if (!latch.await(15, TimeUnit.SECONDS)) {
+            throw IllegalStateException("VpnService.establish() timeout")
+        }
+        error.get()?.let { throw it }
+        return result.get()
     }
 
     private fun buildNotification(): Notification {

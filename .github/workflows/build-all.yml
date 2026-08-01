@@ -165,23 +165,11 @@ jobs:
           channel: stable
       - run: chmod +x scripts/prepare-icons.sh scripts/build-hev-android.sh
       - run: ./scripts/prepare-icons.sh
-      - name: Restore release keystore
-        uses: actions/cache@v4
-        id: keystore-cache
-        with:
-          path: grey_vless/android/keystore/grey-vless-release.jks
-          key: grey-vless-release-keystore-v1
-      - name: Generate release keystore
-        if: steps.keystore-cache.outputs.cache-hit != 'true'
+      - name: Verify committed release keystore
         run: |
-          mkdir -p grey_vless/android/keystore
-          keytool -genkey -v \
-            -keystore grey_vless/android/keystore/grey-vless-release.jks \
-            -keyalg RSA -keysize 2048 -validity 10000 \
-            -alias grey-vless \
-            -storepass GreyVlessReleaseKey \
-            -keypass GreyVlessReleaseKey \
-            -dname "CN=Grey vless, OU=Mobile, O=GermannM3, C=RU"
+          test -f grey_vless/android/keystore/grey-vless-release.jks
+          keytool -list -keystore grey_vless/android/keystore/grey-vless-release.jks \
+            -storepass GreyVlessReleaseKey -alias grey-vless
       - name: Create key.properties
         run: |
           cat > grey_vless/android/key.properties <<'EOF'
@@ -296,7 +284,9 @@ jobs:
 
             **Android:** VPN не усыпляется при выключенном экране (wake lock + запрос исключения из оптимизации батареи). Режим туннеля: полный / только выбранные приложения / все кроме выбранных / без TUN.
 
-            **Стабильность (0.4.19):** mutex connect/disconnect, watchdog backoff, Android sticky VPN recovery + wake renew, elevate до stop, очистка зомби-порта, безопаснее update zip.
+            **Стабильность:** mutex connect/disconnect, watchdog backoff, Android sticky VPN + wake renew.
+
+            **Подпись Android:** один keystore в репозитории — обновления без удаления приложения (с 0.4.20; при апдейте со старого ключа — один раз переустановить).
 
             **Автообновление:** приложение само проверяет GitHub Releases.
           files: dist/*

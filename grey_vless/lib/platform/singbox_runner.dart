@@ -180,11 +180,7 @@ class SingboxRunner {
       if (!vpnReady) {
         throw Exception('Нужно разрешение VPN. Подтвердите запрос системы и нажмите «Подключить» снова.');
       }
-      try {
-        if (!await AndroidNative.isIgnoringBatteryOptimizations()) {
-          await AndroidNative.requestIgnoreBatteryOptimizations();
-        }
-      } catch (_) {}
+      // Battery-исключение НЕ запрашиваем здесь — системный диалог рвёт connect и выглядит как зависание.
     }
 
     final binary = await _resolveBinary();
@@ -224,9 +220,21 @@ class SingboxRunner {
         disallowedApps: disallowed,
       );
       _androidVpn = true;
-      await Future.delayed(const Duration(milliseconds: 1500));
+      // Сервис стартует асинхронно — ждём порт до ~10 с.
+      var sawVpn = false;
+      for (var i = 0; i < 40; i++) {
+        await Future.delayed(const Duration(milliseconds: 250));
+        if (await _portOpen()) return;
+        if (await AndroidNative.isVpnActive()) sawVpn = true;
+        // После ~4с без VPN — нет смысла ждать дальше.
+        if (i >= 16 && !sawVpn) break;
+      }
       if (!await _portOpen()) {
-        throw Exception('VPN запущен, но прокси 127.0.0.1:${SingboxConfigBuilder.localPort} недоступен');
+        await stop();
+        throw Exception(
+          'VPN не поднялся (прокси 127.0.0.1:${SingboxConfigBuilder.localPort} недоступен). '
+          'Проверьте разрешение VPN и что другой VPN не активен.',
+        );
       }
       return;
     }

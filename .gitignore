@@ -7,6 +7,9 @@
 **/secrets/
 *.token
 
+# Локальный key.properties (в репо — example + стабильный .jks)
+grey_vless/android/key.properties
+
 # Бинарники ядер (качает scripts/download-cores.sh в CI)
 grey_vless/assets/bin/*
 !grey_vless/assets/bin/.gitkeep
