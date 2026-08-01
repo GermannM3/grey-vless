@@ -52,9 +52,16 @@ class ConnectionService {
         if (!completer.isCompleted) completer.completeError(e, st);
       }
     });
-    // Не даём упавшему/зависшему звену убить всю очередь навсегда.
     _chain = _chain.catchError((_) {});
     return completer.future;
+  }
+
+  /// Прервать текущий connect/start без ожидания mutex (кнопка «отмена»).
+  void cancelOngoing() {
+    _opGen++;
+    _watchdog.stop();
+    connectedServer = null;
+    unawaited(_runner.stop());
   }
 
   Future<void> connect(VpnServer server, {bool fromWatchdog = false}) {
@@ -62,9 +69,9 @@ class ConnectionService {
   }
 
   Future<void> _connectBody(VpnServer server, {bool fromWatchdog = false}) async {
+    // Сначала стоп без bump gen — иначе gen сразу «протухает» и connect молча выходит.
+    await _disconnectBody(stopWatchdog: !fromWatchdog, bumpOpGen: false);
     final gen = ++_opGen;
-    // Только _disconnectBody — НЕ disconnect() (тот же mutex → вечный hang).
-    await _disconnectBody(stopWatchdog: !fromWatchdog);
     if (gen != _opGen) return;
 
     final resolved = _prepareServer(server);
@@ -166,14 +173,15 @@ class ConnectionService {
     return _serialized(() => _disconnectBody(stopWatchdog: stopWatchdog));
   }
 
-  Future<void> _disconnectBody({bool stopWatchdog = true}) async {
-    _opGen++;
+  Future<void> _disconnectBody({
+    bool stopWatchdog = true,
+    bool bumpOpGen = true,
+  }) async {
+    if (bumpOpGen) _opGen++;
     if (stopWatchdog) _watchdog.stop();
     try {
       await _runner.stop().timeout(const Duration(seconds: 8));
-    } catch (_) {
-      // Не блокируем connect из‑за тормозного stop.
-    }
+    } catch (_) {}
     if (!tunMode && !Platform.isAndroid && !Platform.isIOS) {
       try {
         await _proxy.disable().timeout(const Duration(seconds: 3));
@@ -200,7 +208,6 @@ class ConnectionService {
     _events.add(ConnectionEvent.reconnecting());
     var target = server;
     if (greySenseEnabled) {
-      // Не пингуем весь список — только быстрый выбор из кэша stats.
       target = await greySense.pickForAutoReconnect(
             _lastKnownServers,
             server,

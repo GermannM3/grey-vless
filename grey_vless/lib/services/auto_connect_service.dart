@@ -41,14 +41,11 @@ class AutoConnectService {
 
     _ranThisSession = true;
 
-    VpnServer target;
-    if (selectedIndex != null && selectedIndex >= 0 && selectedIndex < servers.length) {
-      target = servers[selectedIndex];
-    } else {
-      target = await _connection.connectFastest(servers);
-      return AutoConnectResult.connected(target);
-    }
-
+    // Без pingAll: иначе кнопка «Подключить» блокируется на минуты.
+    final idx = (selectedIndex != null && selectedIndex >= 0 && selectedIndex < servers.length)
+        ? selectedIndex
+        : 0;
+    final target = servers[idx];
     await _connection.connect(target);
     return AutoConnectResult.connected(target);
   }

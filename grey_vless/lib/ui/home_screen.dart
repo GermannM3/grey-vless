@@ -70,13 +70,16 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _tryAutoConnect(AppState state, {bool force = false}) async {
     if (_autoConnectBusy || _busy) return;
     if (!state.autoConnectEnabled) return;
-    _autoConnectBusy = true;
+    if (!mounted) return;
+    setState(() => _autoConnectBusy = true);
     try {
-      final result = await state.autoConnectService.tryConnect(
-        servers: state.servers,
-        selectedIndex: state.selectedIndex,
-        force: force,
-      );
+      final result = await state.autoConnectService
+          .tryConnect(
+            servers: state.servers,
+            selectedIndex: state.selectedIndex,
+            force: force,
+          )
+          .timeout(const Duration(seconds: 30));
       if (!mounted) return;
       switch (result) {
         case AutoConnectConnected(:final server):
@@ -92,8 +95,29 @@ class _HomeScreenState extends State<HomeScreen> {
     } catch (e) {
       if (mounted) _snack(_shortError(e), bg: Colors.red.shade800);
     } finally {
-      _autoConnectBusy = false;
+      if (mounted) {
+        setState(() => _autoConnectBusy = false);
+      } else {
+        _autoConnectBusy = false;
+      }
     }
+  }
+
+  Future<void> _onOrbTap(AppState state) async {
+    // Кнопка всегда живая: повторный тап во время busy = отмена.
+    if (_busy || _autoConnectBusy || _pinging) {
+      state.connection.cancelOngoing();
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _autoConnectBusy = false;
+          _pinging = false;
+        });
+        _snack('Отменено');
+      }
+      return;
+    }
+    await _run(() => _toggleConnection(state));
   }
 
   @override
@@ -765,7 +789,7 @@ class _HomeScreenState extends State<HomeScreen> {
             pinging: _pinging,
             connected: connected,
             statusText: _statusText(conn),
-            onTap: () => _run(() => _toggleConnection(state)),
+            onTap: () => _onOrbTap(state),
             onLongPress: state.servers.isEmpty ? null : () => _pingAll(state),
           ),
           const SizedBox(height: 8),
@@ -888,64 +912,68 @@ class _ConnectOrb extends StatelessWidget {
             ? 'ОТКЛЮЧИТЬ'
             : 'ПОДКЛЮЧИТЬ';
 
-    return GestureDetector(
-      onTap: busy ? null : onTap,
-      onLongPress: busy ? null : onLongPress,
-      child: Column(
-        children: [
-          SizedBox(
-            width: 180,
-            height: 180,
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                Container(
-                  width: 180,
-                  height: 180,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    boxShadow: [
-                      BoxShadow(
-                        color: (connected ? AppTheme.statusOk : AppTheme.accent).withValues(alpha: 0.35),
-                        blurRadius: 40,
-                        spreadRadius: 8,
-                      ),
-                    ],
-                  ),
-                ),
-                Container(
-                  width: 150,
-                  height: 150,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: RadialGradient(
-                      colors: connected
-                          ? [const Color(0xFF34D399), const Color(0xFF059669)]
-                          : [AppTheme.accentGlow, AppTheme.accent, const Color(0xFF1D4ED8)],
+    return Column(
+      children: [
+        Material(
+          color: Colors.transparent,
+          child: InkWell(
+            customBorder: const CircleBorder(),
+            onTap: onTap,
+            onLongPress: onLongPress,
+            child: SizedBox(
+              width: 180,
+              height: 180,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  Container(
+                    width: 180,
+                    height: 180,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: (connected ? AppTheme.statusOk : AppTheme.accent).withValues(alpha: 0.35),
+                          blurRadius: 40,
+                          spreadRadius: 8,
+                        ),
+                      ],
                     ),
                   ),
-                  child: busy || pinging
-                      ? const Center(child: CircularProgressIndicator(color: Colors.white))
-                      : Center(
-                          child: Text(
-                            label,
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w700,
-                              fontSize: 16,
-                              height: 1.2,
+                  Container(
+                    width: 150,
+                    height: 150,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: RadialGradient(
+                        colors: connected
+                            ? [const Color(0xFF34D399), const Color(0xFF059669)]
+                            : [AppTheme.accentGlow, AppTheme.accent, const Color(0xFF1D4ED8)],
+                      ),
+                    ),
+                    child: busy || pinging
+                        ? const Center(child: CircularProgressIndicator(color: Colors.white))
+                        : Center(
+                            child: Text(
+                              label,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w700,
+                                fontSize: 16,
+                                height: 1.2,
+                              ),
                             ),
                           ),
-                        ),
-                ),
-              ],
+                  ),
+                ],
+              ),
             ),
           ),
-          const SizedBox(height: 8),
-          Text(statusText, style: const TextStyle(color: AppTheme.textMuted, fontSize: 13)),
-        ],
-      ),
+        ),
+        const SizedBox(height: 8),
+        Text(statusText, style: const TextStyle(color: AppTheme.textMuted, fontSize: 13)),
+      ],
     );
   }
 }
