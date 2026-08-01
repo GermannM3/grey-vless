@@ -470,12 +470,31 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _pingAll(AppState state) async {
-    if (state.servers.isEmpty) return;
+    if (state.servers.isEmpty || _pinging) return;
     setState(() => _pinging = true);
+    var painted = 0;
     try {
-      await PingService.pingAll(state.servers);
+      await PingService.pingAll(
+        state.servers,
+        onProgress: (_) {
+          // Не дёргаем setState на каждый сервер — раз в несколько штук хватает.
+          painted++;
+          if (mounted && (painted % 3 == 0 || painted == state.servers.length)) {
+            setState(() {});
+          }
+        },
+      ).timeout(
+        Duration(seconds: 12 + state.servers.length),
+        onTimeout: () {
+          if (mounted) {
+            _snack('Пинг прерван по таймауту — часть серверов без ответа', bg: Colors.orange.shade900);
+          }
+        },
+      );
       await state.persistServers();
       state.refresh();
+    } catch (e) {
+      if (mounted) _snack(_shortError(e), bg: Colors.red.shade800);
     } finally {
       if (mounted) setState(() => _pinging = false);
     }

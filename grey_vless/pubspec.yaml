@@ -1,7 +1,7 @@
 name: grey_vless
 description: Grey vless — cross-platform VPN client
 publish_to: "none"
-version: 0.4.22+26
+version: 0.4.23+27
 
 environment:
   sdk: ">=3.3.0 <4.0.0"

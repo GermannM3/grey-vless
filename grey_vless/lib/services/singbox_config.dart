@@ -142,9 +142,11 @@ class SingboxConfigBuilder {
       }
     }
 
+    // find_process обязателен, иначе process_name (анти-петля клиента) не работает
+    // и пинг/DNS клиента уходит в TUN → зависание UI на Windows.
     return {
       'auto_detect_interface': true,
-      'find_process': tunnelMode.needsAppList,
+      'find_process': true,
       'rules': rules,
       'final': 'proxy',
     };

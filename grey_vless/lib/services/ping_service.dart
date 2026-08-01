@@ -4,14 +4,19 @@ import 'dart:io';
 import '../models/server.dart';
 
 class PingService {
-  static const _attempts = 2;
-
-  /// TCP до порта сервера (не полный путь через VPN).
+  /// Один быстрый TCP-замер — на Windows Socket.connect часто игнорирует свой timeout.
   static Future<int> tcpPing(
     String host,
     int port, {
-    Duration timeout = const Duration(seconds: 4),
+    Duration timeout = const Duration(seconds: 2),
   }) async {
+    return _tcpPingBody(host, port, timeout).timeout(
+      timeout + const Duration(milliseconds: 500),
+      onTimeout: () => throw SocketException('timeout: $host:$port'),
+    );
+  }
+
+  static Future<int> _tcpPingBody(String host, int port, Duration timeout) async {
     InternetAddress address;
     try {
       final resolved = await InternetAddress.lookup(host).timeout(timeout);
@@ -28,52 +33,58 @@ class PingService {
       throw SocketException('DNS timeout: $host');
     }
 
-    final samples = <int>[];
-    for (var i = 0; i < _attempts; i++) {
-      final stopwatch = Stopwatch()..start();
-      Socket? socket;
+    Socket? socket;
+    final stopwatch = Stopwatch()..start();
+    try {
+      socket = await Socket.connect(address, port, timeout: timeout).timeout(
+        timeout,
+        onTimeout: () => throw TimeoutException('connect'),
+      );
+      stopwatch.stop();
+      return stopwatch.elapsedMilliseconds.clamp(1, 99999);
+    } on TimeoutException {
+      throw SocketException('timeout: $host:$port');
+    } finally {
+      // close() на Windows может висеть вечно — только destroy.
       try {
-        socket = await Socket.connect(address, port, timeout: timeout);
-        stopwatch.stop();
-        if (stopwatch.elapsedMilliseconds > 0) {
-          samples.add(stopwatch.elapsedMilliseconds);
-        }
-      } finally {
-        await socket?.close();
-      }
-      if (i + 1 < _attempts) {
-        await Future<void>.delayed(const Duration(milliseconds: 120));
-      }
+        socket?.destroy();
+      } catch (_) {}
     }
-
-    if (samples.isEmpty) {
-      throw SocketException('нет TCP до $host:$port');
-    }
-    samples.sort();
-    return samples.first;
   }
 
-  static Future<void> pingAll(List<VpnServer> servers, {bool sequential = true}) async {
-    Future<void> pingOne(VpnServer server) async {
-      try {
-        server.pingMs = await tcpPing(server.host, server.port);
-        server.pingError = null;
-      } on SocketException catch (e) {
-        server.pingMs = null;
-        server.pingError = e.message.contains('DNS') ? 'DNS' : 'нет связи';
-      } catch (_) {
-        server.pingMs = null;
-        server.pingError = 'нет связи';
+  /// Пинг списка с лимитом параллелизма; [onProgress] — после каждого сервера (для UI).
+  static Future<void> pingAll(
+    List<VpnServer> servers, {
+    int concurrency = 6,
+    void Function(VpnServer server)? onProgress,
+  }) async {
+    if (servers.isEmpty) return;
+
+    // На Android слишком много параллельных сокетов ломает OEM — держим низкий лимит.
+    final limit = Platform.isAndroid ? 3 : concurrency;
+    var next = 0;
+
+    Future<void> worker() async {
+      while (true) {
+        final i = next++;
+        if (i >= servers.length) return;
+        final server = servers[i];
+        try {
+          server.pingMs = await tcpPing(server.host, server.port);
+          server.pingError = null;
+        } on SocketException catch (e) {
+          server.pingMs = null;
+          server.pingError = e.message.contains('DNS') ? 'DNS' : 'нет связи';
+        } catch (_) {
+          server.pingMs = null;
+          server.pingError = 'нет связи';
+        }
+        onProgress?.call(server);
       }
     }
 
-    if (sequential || Platform.isAndroid) {
-      for (final server in servers) {
-        await pingOne(server);
-      }
-    } else {
-      await Future.wait(servers.map(pingOne));
-    }
+    final n = servers.length < limit ? servers.length : limit;
+    await Future.wait(List.generate(n, (_) => worker()));
   }
 
   static VpnServer? fastest(List<VpnServer> servers) {
