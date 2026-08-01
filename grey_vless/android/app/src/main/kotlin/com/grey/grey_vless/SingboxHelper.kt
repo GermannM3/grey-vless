@@ -34,7 +34,16 @@ object SingboxHelper {
             throw IOException("Конфиг не найден: $sourcePath")
         }
         val configDir = File(context.codeCacheDir, "configs").apply { mkdirs() }
-        val dest = File(configDir, "active-${System.currentTimeMillis()}.json")
+        // Один active.json — не копить active-*.json
+        configDir.listFiles()?.forEach { f ->
+            if (f.name.startsWith("active-") && f.name.endsWith(".json")) {
+                try {
+                    f.delete()
+                } catch (_: Exception) {
+                }
+            }
+        }
+        val dest = File(configDir, "active.json")
         source.copyTo(dest, overwrite = true)
         dest.setReadable(true, false)
         return dest.absolutePath
@@ -76,7 +85,9 @@ object SingboxHelper {
         proxyProcess = null
         proc.destroy()
         try {
-            proc.waitFor()
+            if (!proc.waitFor(3, java.util.concurrent.TimeUnit.SECONDS)) {
+                proc.destroyForcibly()
+            }
         } catch (_: InterruptedException) {
             proc.destroyForcibly()
         }

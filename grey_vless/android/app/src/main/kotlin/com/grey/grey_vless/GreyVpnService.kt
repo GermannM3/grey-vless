@@ -4,14 +4,21 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.net.VpnService
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.os.ParcelFileDescriptor
 import android.os.PowerManager
 import android.util.Log
 import java.io.File
+import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledFuture
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 class GreyVpnService : VpnService() {
@@ -19,7 +26,11 @@ class GreyVpnService : VpnService() {
     private var singboxProcess: Process? = null
     private var hevThread: Thread? = null
     private var wakeLock: PowerManager.WakeLock? = null
+    private var wakeRenew: ScheduledFuture<*>? = null
     private val stopping = AtomicBoolean(false)
+    private val worker = Executors.newSingleThreadExecutor()
+    private val scheduler = Executors.newSingleThreadScheduledExecutor()
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     override fun onCreate() {
         super.onCreate()
@@ -29,11 +40,14 @@ class GreyVpnService : VpnService() {
     override fun onDestroy() {
         active = null
         stopTunnel()
+        worker.shutdownNow()
+        scheduler.shutdownNow()
         super.onDestroy()
     }
 
     override fun onRevoke() {
         Log.w(TAG, "VPN revoked by system")
+        clearPersisted()
         stopTunnel()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
@@ -51,6 +65,13 @@ class GreyVpnService : VpnService() {
         const val EXTRA_DISALLOWED = "disallowed_apps"
         private const val NOTIF_ID = 42
         private const val CHANNEL_ID = "grey_vless_vpn"
+        private const val PREFS = "grey_vpn_state"
+        private const val K_CONFIG = "config"
+        private const val K_BINARY = "binary"
+        private const val K_PORT = "proxy_port"
+        private const val K_ALLOWED = "allowed"
+        private const val K_DISALLOWED = "disallowed"
+        private const val K_ACTIVE = "active"
 
         @Volatile
         private var active: GreyVpnService? = null
@@ -61,9 +82,34 @@ class GreyVpnService : VpnService() {
         }
     }
 
+    private fun prefs(): SharedPreferences =
+        getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+
+    private fun persistStart(
+        config: String,
+        binary: String,
+        port: Int,
+        allowed: List<String>,
+        disallowed: List<String>,
+    ) {
+        prefs().edit()
+            .putBoolean(K_ACTIVE, true)
+            .putString(K_CONFIG, config)
+            .putString(K_BINARY, binary)
+            .putInt(K_PORT, port)
+            .putString(K_ALLOWED, allowed.joinToString("\n"))
+            .putString(K_DISALLOWED, disallowed.joinToString("\n"))
+            .apply()
+    }
+
+    private fun clearPersisted() {
+        prefs().edit().clear().apply()
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> {
+                clearPersisted()
                 stopTunnel()
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
@@ -79,25 +125,60 @@ class GreyVpnService : VpnService() {
                     stopSelf()
                     return START_NOT_STICKY
                 }
-                stopping.set(false)
-                try {
-                    startForeground(NOTIF_ID, buildNotification())
-                } catch (e: Exception) {
-                    Log.e(TAG, "startForeground failed", e)
+                return beginStart(configPath, binaryPath, proxyPort, allowed, disallowed)
+            }
+            else -> {
+                // START_STICKY restart без intent — восстанавливаем из prefs.
+                val p = prefs()
+                if (!p.getBoolean(K_ACTIVE, false)) {
                     stopSelf()
                     return START_NOT_STICKY
                 }
-                stopTunnel()
-
-                try {
-                    acquireWakeLock()
-                    startVpnTunnel(configPath, binaryPath, proxyPort, allowed, disallowed)
-                } catch (e: Exception) {
-                    Log.e(TAG, "VPN start failed", e)
-                    stopTunnel()
-                    stopForeground(STOP_FOREGROUND_REMOVE)
+                val configPath = p.getString(K_CONFIG, null)
+                val binaryPath = p.getString(K_BINARY, null)
+                val proxyPort = p.getInt(K_PORT, 7890)
+                val allowed = p.getString(K_ALLOWED, "")!!.lines().filter { it.isNotBlank() }
+                val disallowed = p.getString(K_DISALLOWED, "")!!.lines().filter { it.isNotBlank() }
+                if (configPath.isNullOrBlank() || binaryPath.isNullOrBlank()) {
+                    clearPersisted()
                     stopSelf()
                     return START_NOT_STICKY
+                }
+                Log.i(TAG, "Sticky restart — восстанавливаем VPN")
+                return beginStart(configPath, binaryPath, proxyPort, allowed, disallowed)
+            }
+        }
+    }
+
+    private fun beginStart(
+        configPath: String,
+        binaryPath: String,
+        proxyPort: Int,
+        allowed: List<String>,
+        disallowed: List<String>,
+    ): Int {
+        stopping.set(false)
+        try {
+            startForeground(NOTIF_ID, buildNotification())
+        } catch (e: Exception) {
+            Log.e(TAG, "startForeground failed", e)
+            stopSelf()
+            return START_NOT_STICKY
+        }
+        persistStart(configPath, binaryPath, proxyPort, allowed, disallowed)
+        worker.execute {
+            try {
+                stopTunnel()
+                stopping.set(false)
+                acquireWakeLock()
+                startVpnTunnel(configPath, binaryPath, proxyPort, allowed, disallowed)
+            } catch (e: Exception) {
+                Log.e(TAG, "VPN start failed", e)
+                stopTunnel()
+                clearPersisted()
+                mainHandler.post {
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelf()
                 }
             }
         }
@@ -109,11 +190,23 @@ class GreyVpnService : VpnService() {
         val pm = getSystemService(POWER_SERVICE) as PowerManager
         wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "GreyVless:Vpn").apply {
             setReferenceCounted(false)
-            acquire(6 * 60 * 60 * 1000L) // до 6 часов, продлевается при reconnect
+            acquire(60 * 60 * 1000L) // 1 час, ниже renew каждые 30 мин
         }
+        wakeRenew?.cancel(false)
+        wakeRenew = scheduler.scheduleAtFixedRate({
+            try {
+                if (isActive()) {
+                    wakeLock?.acquire(60 * 60 * 1000L)
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "wake renew failed", e)
+            }
+        }, 30, 30, TimeUnit.MINUTES)
     }
 
     private fun releaseWakeLock() {
+        wakeRenew?.cancel(false)
+        wakeRenew = null
         try {
             wakeLock?.let {
                 if (it.isHeld) it.release()
@@ -130,14 +223,25 @@ class GreyVpnService : VpnService() {
         allowed: List<String>,
         disallowed: List<String>,
     ) {
+        if (!File(configPath).exists() || !File(binaryPath).exists()) {
+            throw IllegalStateException("config/binary missing after restart")
+        }
+
         singboxProcess = ProcessBuilder(binaryPath, "run", "-c", configPath)
             .redirectErrorStream(true)
             .directory(File(binaryPath).parentFile)
             .start()
 
-        Thread.sleep(900)
-
-        if (singboxProcess?.isAlive != true) {
+        // Не на main thread — sleep ок.
+        var alive = false
+        for (i in 0 until 20) {
+            Thread.sleep(100)
+            if (singboxProcess?.isAlive == true) {
+                alive = true
+                break
+            }
+        }
+        if (!alive) {
             throw IllegalStateException("sing-box не запустился")
         }
 
@@ -159,7 +263,6 @@ class GreyVpnService : VpnService() {
             builder.setMetered(false)
         }
 
-        // VpnService: либо allowlist, либо disallowlist (кроме себя).
         if (allowed.isNotEmpty()) {
             for (pkg in allowed) {
                 try {
@@ -168,7 +271,6 @@ class GreyVpnService : VpnService() {
                     Log.w(TAG, "addAllowedApplication $pkg failed", e)
                 }
             }
-            // Своё приложение не добавляем в allow — иначе loop.
         } else {
             try {
                 builder.addDisallowedApplication(packageName)
@@ -256,16 +358,35 @@ class GreyVpnService : VpnService() {
 
     private fun stopTunnel() {
         if (!stopping.compareAndSet(false, true)) return
-        HevBridge.stop()
-        hevThread?.interrupt()
-        hevThread = null
-        singboxProcess?.destroy()
         try {
-            singboxProcess?.waitFor()
-        } catch (_: InterruptedException) {
+            HevBridge.stop()
+        } catch (_: Exception) {
         }
+        hevThread?.interrupt()
+        try {
+            hevThread?.join(2000)
+        } catch (_: Exception) {
+        }
+        hevThread = null
+        val proc = singboxProcess
         singboxProcess = null
-        tunInterface?.close()
+        if (proc != null) {
+            proc.destroy()
+            try {
+                if (!proc.waitFor(3, TimeUnit.SECONDS)) {
+                    proc.destroyForcibly()
+                }
+            } catch (_: Exception) {
+                try {
+                    proc.destroyForcibly()
+                } catch (_: Exception) {
+                }
+            }
+        }
+        try {
+            tunInterface?.close()
+        } catch (_: Exception) {
+        }
         tunInterface = null
         releaseWakeLock()
         stopping.set(false)

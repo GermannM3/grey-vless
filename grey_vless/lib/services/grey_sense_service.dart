@@ -4,7 +4,6 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/server.dart';
-import 'ping_service.dart';
 
 /// Grey Sense — локальный «AI»: скоринг серверов, история стабильности,
 /// опциональные подсказки через Hugging Face Inference API.
@@ -87,7 +86,7 @@ class GreySenseService {
 
   Future<VpnServer?> pickForAutoReconnect(List<VpnServer> servers, VpnServer current) async {
     if (servers.isEmpty) return null;
-    await PingService.pingAll(servers, sequential: true);
+    // Без полного pingAll — иначе reconnect блокируется на минуты и thrash'ит watchdog.
     final rec = recommend(servers);
     if (rec != null && score(rec) > score(current) + 0.15) return rec;
     return current;

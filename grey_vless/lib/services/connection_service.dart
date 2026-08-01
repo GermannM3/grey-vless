@@ -30,14 +30,38 @@ class ConnectionService {
   final _events = StreamController<ConnectionEvent>.broadcast();
   Stream<ConnectionEvent> get events => _events.stream;
 
+  /// Сериализация connect/disconnect — защита от double-start.
+  Future<void> _chain = Future.value();
+  int _opGen = 0;
+
   bool get isConnected => _runner.isRunning;
   bool get isReconnecting => _watchdog.isReconnecting;
 
   bool get isProxyOnly => Platform.isAndroid && isConnected && !tunMode;
   bool get isFullVpn => isConnected && tunMode;
 
-  Future<void> connect(VpnServer server, {bool fromWatchdog = false}) async {
-    await disconnect(stopWatchdog: false);
+  Future<T> _serialized<T>(Future<T> Function() fn) {
+    final completer = Completer<T>();
+    _chain = _chain.then((_) async {
+      try {
+        completer.complete(await fn());
+      } catch (e, st) {
+        completer.completeError(e, st);
+      }
+    });
+    return completer.future;
+  }
+
+  Future<void> connect(VpnServer server, {bool fromWatchdog = false}) {
+    return _serialized(() => _connectBody(server, fromWatchdog: fromWatchdog));
+  }
+
+  Future<void> _connectBody(VpnServer server, {bool fromWatchdog = false}) async {
+    final gen = ++_opGen;
+    // При ручном connect останавливаем watchdog; при auto — оставляем.
+    await disconnect(stopWatchdog: !fromWatchdog);
+    if (gen != _opGen) return;
+
     final resolved = _prepareServer(server);
     try {
       final useTun = tunnelMode.usesTun || (!Platform.isAndroid && tunnelMode.needsAppList);
@@ -61,10 +85,17 @@ class ConnectionService {
         tunnelMode: tunnelMode,
         tunnelAppIds: tunnelAppIds,
       );
+      if (gen != _opGen) {
+        await _runner.stop();
+        return;
+      }
       if (!useTun && !Platform.isAndroid && !Platform.isIOS) {
         try {
           await _proxy.enable(host: '127.0.0.1', port: SingboxConfigBuilder.localPort);
-        } catch (_) {}
+        } catch (e) {
+          await _runner.stop();
+          throw Exception('Не удалось включить системный прокси: $e');
+        }
       }
       connectedServer = resolved;
       await greySense.recordSuccess(resolved);
@@ -76,6 +107,9 @@ class ConnectionService {
       }
     } catch (e) {
       await greySense.recordFailure(resolved);
+      if (!fromWatchdog) {
+        _watchdog.stop();
+      }
       rethrow;
     }
   }
@@ -116,7 +150,12 @@ class ConnectionService {
     await connect(server);
   }
 
-  Future<void> disconnect({bool stopWatchdog = true}) async {
+  Future<void> disconnect({bool stopWatchdog = true}) {
+    return _serialized(() => _disconnectBody(stopWatchdog: stopWatchdog));
+  }
+
+  Future<void> _disconnectBody({bool stopWatchdog = true}) async {
+    _opGen++;
     if (stopWatchdog) _watchdog.stop();
     await _runner.stop();
     if (!tunMode && !Platform.isAndroid && !Platform.isIOS) {
@@ -143,6 +182,7 @@ class ConnectionService {
     _events.add(ConnectionEvent.reconnecting());
     var target = server;
     if (greySenseEnabled) {
+      // Не пингуем весь список — только быстрый выбор из кэша stats.
       target = await greySense.pickForAutoReconnect(
             _lastKnownServers,
             server,

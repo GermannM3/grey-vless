@@ -3,11 +3,12 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
-import '../services/singbox_config.dart';
 import '../models/tunnel_mode.dart';
+import '../services/singbox_config.dart';
 import 'android_native.dart';
 import 'windows_elevation.dart';
 
@@ -18,13 +19,18 @@ class SingboxRunner {
   bool _androidVpn = false;
   bool _androidProxy = false;
   bool _alive = false;
+  int _startGen = 0;
+  final List<StreamSubscription> _logSubs = [];
 
   bool get isRunning => _androidVpn || _androidProxy || (_process != null && _alive);
 
   Future<bool> _portOpen() async {
     try {
-      final socket = await Socket.connect('127.0.0.1', SingboxConfigBuilder.localPort,
-          timeout: const Duration(milliseconds: 400));
+      final socket = await Socket.connect(
+        '127.0.0.1',
+        SingboxConfigBuilder.localPort,
+        timeout: const Duration(milliseconds: 400),
+      );
       await socket.close();
       return true;
     } catch (_) {
@@ -57,8 +63,13 @@ class SingboxRunner {
 
     final dir = await getApplicationSupportDirectory();
     final out = File(p.join(dir.path, Platform.isWindows ? 'sing-box.exe' : 'sing-box'));
+    final marker = File(p.join(dir.path, 'sing-box.version'));
+    final info = await PackageInfo.fromPlatform();
+    final want = '${info.version}+${info.buildNumber}';
+    final have = await marker.exists() ? (await marker.readAsString()).trim() : '';
+    final needExtract = !await out.exists() || have != want;
 
-    if (!await out.exists()) {
+    if (needExtract) {
       final String asset;
       if (Platform.isWindows) {
         asset = 'assets/bin/sing-box-windows-amd64.exe';
@@ -75,6 +86,7 @@ class SingboxRunner {
         data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
         flush: true,
       );
+      await marker.writeAsString(want, flush: true);
     }
 
     if (Platform.isWindows) {
@@ -86,6 +98,26 @@ class SingboxRunner {
       }
     }
     return out.path;
+  }
+
+  /// Если порт 7890 уже слушает — убиваем зомби sing-box.
+  Future<void> _freeLocalPort() async {
+    if (!await _portOpen()) return;
+    await _killOrphanSingbox();
+    await Future.delayed(const Duration(milliseconds: 400));
+    if (await _portOpen()) {
+      await Future.delayed(const Duration(milliseconds: 800));
+    }
+  }
+
+  Future<void> _killOrphanSingbox() async {
+    try {
+      if (Platform.isWindows) {
+        await Process.run('taskkill', ['/F', '/IM', 'sing-box.exe'], runInShell: true);
+      } else if (Platform.isLinux || Platform.isMacOS) {
+        await Process.run('pkill', ['-f', 'sing-box']);
+      }
+    } catch (_) {}
   }
 
   Future<String> _readLogTail() async {
@@ -119,14 +151,16 @@ class SingboxRunner {
     TunnelMode tunnelMode = TunnelMode.fullVpn,
     List<String> tunnelAppIds = const [],
   }) async {
-    await stop();
-
+    // Elevation ДО stop — иначе рвём сессию и уходим в UAC без reconnect.
     if (Platform.isWindows && tunMode) {
       if (!await WindowsElevation.isElevated()) {
         await WindowsElevation.relaunchElevated();
         return;
       }
     }
+
+    await stop();
+    await _freeLocalPort();
 
     if (tunnelMode.needsAppList && tunnelAppIds.isEmpty) {
       throw Exception(
@@ -146,7 +180,6 @@ class SingboxRunner {
       if (!vpnReady) {
         throw Exception('Нужно разрешение VPN. Подтвердите запрос системы и нажмите «Подключить» снова.');
       }
-      // Просим исключение из оптимизации батареи — иначе экран off убивает туннель на MIUI/Samsung.
       try {
         if (!await AndroidNative.isIgnoringBatteryOptimizations()) {
           await AndroidNative.requestIgnoreBatteryOptimizations();
@@ -201,7 +234,7 @@ class SingboxRunner {
     if (Platform.isAndroid) {
       await AndroidNative.singboxStart(binaryPath: binaryPath, configPath: configPath);
       _androidProxy = true;
-      for (var i = 0; i < 25; i++) {
+      for (var i = 0; i < 40; i++) {
         await Future.delayed(const Duration(milliseconds: 150));
         if (!await AndroidNative.singboxIsRunning()) {
           final log = await AndroidNative.singboxLastLog();
@@ -235,19 +268,32 @@ class SingboxRunner {
       throw Exception('Не удалось запустить sing-box (${e.message})');
     }
 
+    final gen = ++_startGen;
     final logFile = File(_logPath!);
     final proc = _process!;
-    proc.stderr.listen((data) => logFile.writeAsBytesSync(data, mode: FileMode.append, flush: true));
-    proc.stdout.listen((data) => logFile.writeAsBytesSync(data, mode: FileMode.append, flush: true));
-    proc.exitCode.then((_) => _alive = false);
+    _logSubs.add(proc.stderr.listen((data) {
+      try {
+        logFile.writeAsBytesSync(data, mode: FileMode.append, flush: true);
+      } catch (_) {}
+    }));
+    _logSubs.add(proc.stdout.listen((data) {
+      try {
+        logFile.writeAsBytesSync(data, mode: FileMode.append, flush: true);
+      } catch (_) {}
+    }));
+    proc.exitCode.then((_) {
+      if (_startGen == gen) _alive = false;
+    });
 
-    for (var i = 0; i < 25; i++) {
+    for (var i = 0; i < 40; i++) {
       await Future.delayed(const Duration(milliseconds: 150));
       try {
         await proc.exitCode.timeout(const Duration(milliseconds: 1));
         final log = await _readLogTail();
-        _process = null;
-        _alive = false;
+        if (_startGen == gen) {
+          _process = null;
+          _alive = false;
+        }
         var msg = 'sing-box завершился';
         msg += _tunFailureHint(log, tunMode: tunMode);
         if (log.isNotEmpty) msg += ': $log';
@@ -272,6 +318,12 @@ class SingboxRunner {
 
   Future<void> stop() async {
     _alive = false;
+    _startGen++;
+    for (final s in _logSubs) {
+      await s.cancel();
+    }
+    _logSubs.clear();
+
     if (_androidProxy) {
       await AndroidNative.singboxStop();
       _androidProxy = false;
@@ -284,21 +336,29 @@ class SingboxRunner {
     final proc = _process;
     _process = null;
     if (proc != null) {
-      proc.kill(ProcessSignal.sigterm);
+      try {
+        proc.kill(ProcessSignal.sigterm);
+      } catch (_) {}
       try {
         await proc.exitCode.timeout(const Duration(seconds: 3));
       } catch (_) {
-        proc.kill(ProcessSignal.sigkill);
+        try {
+          proc.kill(ProcessSignal.sigkill);
+        } catch (_) {}
       }
     }
     if (_configPath != null) {
-      final file = File(_configPath!);
-      if (await file.exists()) await file.delete();
+      try {
+        final file = File(_configPath!);
+        if (await file.exists()) await file.delete();
+      } catch (_) {}
       _configPath = null;
     }
     if (_logPath != null) {
-      final file = File(_logPath!);
-      if (await file.exists()) await file.delete();
+      try {
+        final file = File(_logPath!);
+        if (await file.exists()) await file.delete();
+      } catch (_) {}
       _logPath = null;
     }
   }

@@ -217,12 +217,9 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onDestroy() {
+        vpnPermissionResult?.error("cancelled", "Activity destroyed", null)
+        vpnPermissionResult = null
         // Не трогаем VPN-сервис — он живёт отдельно при выключенном экране.
-        // Proxy-only процесс тоже оставляем, если пользователь отключил VPN явно через stop.
-        if (!GreyVpnService.isActive()) {
-            // Нельзя стопать proxy при повороте/пересоздании Activity — только если процесс умирает.
-            // onDestroy вызывается и при смене конфигурации; не убиваем proxy здесь.
-        }
         super.onDestroy()
     }
 

@@ -220,13 +220,22 @@ class UpdateService {
 
     if (Platform.isWindows) {
       final script = File(p.join(staging.path, '_update.bat'));
+      final exeName = p.basename(exe);
       await script.writeAsString('''
 @echo off
 chcp 65001 >nul
 timeout /t 2 /nobreak >nul
+if not exist "${staging.path}\\$exeName" (
+  echo UPDATE FAILED: missing $exeName
+  exit /b 1
+)
 xcopy /E /Y /I "${staging.path}\\*" "$installDir\\" >nul
+if errorlevel 1 (
+  echo UPDATE FAILED: xcopy
+  exit /b 1
+)
 powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-ChildItem -LiteralPath '$installDir' -Recurse -File | Unblock-File -ErrorAction SilentlyContinue"
-start "" "$exe"
+if exist "$exe" start "" "$exe"
 del "%~f0"
 ''');
       await Process.start('cmd', ['/c', script.path], mode: ProcessStartMode.detached);
@@ -234,7 +243,9 @@ del "%~f0"
       final script = File(p.join(staging.path, '_update.sh'));
       await script.writeAsString('''
 #!/bin/sh
+set -e
 sleep 2
+test -x "$staging.path/grey_vless" -o -f "$staging.path/grey_vless" || exit 1
 cp -a "$staging.path"/. "$installDir"/
 exec "$exe"
 ''');
