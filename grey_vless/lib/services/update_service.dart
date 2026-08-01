@@ -8,6 +8,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import '../platform/android_native.dart';
+import '../platform/windows_install.dart';
 
 const _repo = 'GermannM3/grey-vless';
 const _apiLatest = 'https://api.github.com/repos/$_repo/releases/latest';
@@ -199,8 +200,6 @@ class UpdateService {
   }
 
   static Future<void> _applyZipUpdate(String zipPath) async {
-    final exe = Platform.resolvedExecutable;
-    final installDir = p.dirname(exe);
     final staging = Directory(p.join((await getTemporaryDirectory()).path, 'grey-vless-update'));
     if (await staging.exists()) await staging.delete(recursive: true);
     await staging.create(recursive: true);
@@ -208,40 +207,70 @@ class UpdateService {
     final bytes = await File(zipPath).readAsBytes();
     final archive = ZipDecoder().decodeBytes(bytes);
     for (final file in archive) {
-      if (file.isFile) {
-        final out = File(p.join(staging.path, file.name));
-        await out.parent.create(recursive: true);
-        await out.writeAsBytes(file.content as List<int>);
-        if (Platform.isLinux && (file.name == 'grey_vless' || file.name.endsWith('/grey_vless'))) {
-          await Process.run('chmod', ['+x', out.path]);
-        }
+      if (!file.isFile) continue;
+      final out = File(p.join(staging.path, file.name));
+      await out.parent.create(recursive: true);
+      await out.writeAsBytes(file.content as List<int>);
+      if (Platform.isLinux && (file.name == 'grey_vless' || file.name.endsWith('/grey_vless'))) {
+        await Process.run('chmod', ['+x', out.path]);
       }
     }
 
     if (Platform.isWindows) {
-      final script = File(p.join(staging.path, '_update.bat'));
-      final exeName = p.basename(exe);
+      // Всегда в %LOCALAPPDATA%\Programs\Grey-vless — не поверх Downloads.
+      final target = WindowsInstall.installDir.replaceAll("'", "''");
+      final stage = staging.path.replaceAll("'", "''");
+      final exePath = WindowsInstall.installExe.replaceAll("'", "''");
+      final script = File(p.join(staging.path, '_update.ps1'));
       await script.writeAsString('''
+\$ErrorActionPreference = 'Stop'
+Start-Sleep -Seconds 2
+taskkill /F /IM grey_vless.exe /T 2>\$null
+taskkill /F /IM sing-box.exe /T 2>\$null
+Start-Sleep -Seconds 1
+New-Item -ItemType Directory -Force -Path '$target' | Out-Null
+\$rc = Start-Process -FilePath robocopy -ArgumentList @(
+  '$stage', '$target', '/E', '/IS', '/IT', '/R:3', '/W:1',
+  '/NFL', '/NDL', '/NJH', '/NJS', '/NP',
+  '/XF', '_update.ps1', '_update.bat', '_update.sh', 'ЧИТАЙ_МЕНЯ.txt', 'Установить.cmd', 'install.ps1'
+) -Wait -PassThru
+if (\$rc.ExitCode -ge 8) {
+  Copy-Item -Path '$stage\\*' -Destination '$target' -Recurse -Force
+}
+Get-ChildItem -LiteralPath '$target' -Recurse -File | ForEach-Object {
+  Unblock-File -LiteralPath \$_.FullName -ErrorAction SilentlyContinue
+  \$z = \$_.FullName + ':Zone.Identifier'
+  if (Test-Path -LiteralPath \$z) { Remove-Item -LiteralPath \$z -Force -ErrorAction SilentlyContinue }
+}
+\$launcher = Join-Path '$target' 'Запуск.cmd'
+if (-not (Test-Path \$launcher)) {
+  @"
 @echo off
-chcp 65001 >nul
-timeout /t 2 /nobreak >nul
-if not exist "${staging.path}\\$exeName" (
-  echo UPDATE FAILED: missing $exeName
-  exit /b 1
-)
-xcopy /E /Y /I "${staging.path}\\*" "$installDir\\" >nul
-if errorlevel 1 (
-  echo UPDATE FAILED: xcopy
-  exit /b 1
-)
-powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-ChildItem -LiteralPath '$installDir' -Recurse -File | Unblock-File -ErrorAction SilentlyContinue"
-if exist "$exe" start "" "$exe"
-del "%~f0"
+cd /d "%~dp0"
+start "" "%~dp0grey_vless.exe"
+"@ | Set-Content -Path \$launcher -Encoding ASCII
+}
+\$startMenu = Join-Path \$env:APPDATA 'Microsoft\\Windows\\Start Menu\\Programs\\Grey vless.lnk'
+\$Wsh = New-Object -ComObject WScript.Shell
+\$Sc = \$Wsh.CreateShortcut(\$startMenu)
+\$Sc.TargetPath = \$launcher
+\$Sc.WorkingDirectory = '$target'
+\$Sc.IconLocation = '$exePath'
+\$Sc.Save()
+Start-Process -FilePath '$exePath' -WorkingDirectory '$target'
 ''');
-      await Process.start('cmd', ['/c', script.path], mode: ProcessStartMode.detached);
-    } else {
-      final script = File(p.join(staging.path, '_update.sh'));
-      await script.writeAsString('''
+      await Process.start(
+        'powershell',
+        ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script.path],
+        mode: ProcessStartMode.detached,
+      );
+      exit(0);
+    }
+
+    final exe = Platform.resolvedExecutable;
+    final installDir = p.dirname(exe);
+    final script = File(p.join(staging.path, '_update.sh'));
+    await script.writeAsString('''
 #!/bin/sh
 set -e
 sleep 2
@@ -249,9 +278,8 @@ test -x "$staging.path/grey_vless" -o -f "$staging.path/grey_vless" || exit 1
 cp -a "$staging.path"/. "$installDir"/
 exec "$exe"
 ''');
-      await Process.run('chmod', ['+x', script.path]);
-      await Process.start('/bin/sh', [script.path], mode: ProcessStartMode.detached);
-    }
+    await Process.run('chmod', ['+x', script.path]);
+    await Process.start('/bin/sh', [script.path], mode: ProcessStartMode.detached);
     exit(0);
   }
 }

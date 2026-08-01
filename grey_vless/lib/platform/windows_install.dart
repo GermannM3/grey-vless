@@ -2,10 +2,11 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
-/// Жёсткая установка Windows-клиента в LocalAppData + снятие MotW.
+/// Единственный «правильный» путь Windows-клиента: LocalAppData.
 ///
-/// Без этого после reboot SmartScreen/App Control часто не даёт стартовать
-/// exe прямо из Downloads.
+/// Конфликты при обновлении обычно из‑за:
+/// - копии в Downloads + копии в Programs;
+/// - xcopy поверх запущенного grey_vless.exe / dll.
 class WindowsInstall {
   WindowsInstall._();
 
@@ -26,12 +27,40 @@ class WindowsInstall {
     return normExe == normInstall;
   }
 
-  static bool get looksLikeDownloads {
-    final exe = Platform.resolvedExecutable.toLowerCase();
-    return exe.contains('\\downloads\\') || exe.contains('\\temp\\');
+  /// Убивает экземпляры только из installDir (не трогает текущий процесс из Downloads).
+  static Future<void> killInstallDirInstances() async {
+    if (!Platform.isWindows) return;
+    final target = installDir.replaceAll("'", "''");
+    await Process.run('powershell', [
+      '-NoProfile',
+      '-ExecutionPolicy',
+      'Bypass',
+      '-Command',
+      '''
+\$target = '$target'
+Get-CimInstance Win32_Process -Filter "Name='grey_vless.exe' OR Name='sing-box.exe'" -ErrorAction SilentlyContinue | ForEach-Object {
+  \$path = \$_.ExecutablePath
+  if (\$path -and \$path.StartsWith(\$target, [StringComparison]::OrdinalIgnoreCase)) {
+    Stop-Process -Id \$_.ProcessId -Force -ErrorAction SilentlyContinue
+  }
+}
+''',
+    ]);
+    await Future.delayed(const Duration(milliseconds: 400));
   }
 
-  /// Если запуск не из installDir — копирует туда, Unblock, ярлык, relaunch.
+  /// Убивает все экземпляры клиента и ядра (только из внешнего updater-скрипта).
+  static Future<void> killRunningInstances() async {
+    if (!Platform.isWindows) return;
+    for (final name in ['grey_vless.exe', 'sing-box.exe']) {
+      try {
+        await Process.run('taskkill', ['/F', '/IM', name, '/T'], runInShell: true);
+      } catch (_) {}
+    }
+    await Future.delayed(const Duration(milliseconds: 600));
+  }
+
+  /// Если запуск не из installDir — ставит/обновляет туда и перезапускает.
   /// Возвращает true, если текущий процесс должен завершиться.
   static Future<bool> ensureInstalledAndRelaunch() async {
     if (!Platform.isWindows) return false;
@@ -41,10 +70,13 @@ class WindowsInstall {
     }
 
     final sourceDir = p.dirname(Platform.resolvedExecutable);
+    await killInstallDirInstances();
     await _copyTree(sourceDir, installDir);
     await unblockTree(installDir);
     await _writeLauncherCmd();
     await _createStartMenuShortcut();
+    await _removeStaleDownloadsPins();
+
     await Process.start(
       installExe,
       const [],
@@ -54,7 +86,6 @@ class WindowsInstall {
     return true;
   }
 
-  /// Стартовый safety-net: снять MotW даже если уже установлены.
   static Future<void> unblockTree(String dir) async {
     if (!Platform.isWindows || dir.isEmpty) return;
     final escaped = dir.replaceAll("'", "''");
@@ -78,15 +109,38 @@ Get-ChildItem -LiteralPath '$escaped' -Recurse -File | ForEach-Object {
     await Directory(to).create(recursive: true);
     final escapedFrom = from.replaceAll("'", "''");
     final escapedTo = to.replaceAll("'", "''");
-    final r = await Process.run('powershell', [
-      '-NoProfile',
-      '-ExecutionPolicy',
-      'Bypass',
-      '-Command',
-      "Copy-Item -LiteralPath '$escapedFrom\\*' -Destination '$escapedTo' -Recurse -Force",
+    // Robocopy: /E все подпапки, /IS /IT перезапись, /R:2 повторы при lock.
+    final r = await Process.run('robocopy', [
+      escapedFrom,
+      escapedTo,
+      '/E',
+      '/IS',
+      '/IT',
+      '/R:3',
+      '/W:1',
+      '/NFL',
+      '/NDL',
+      '/NJH',
+      '/NJS',
+      '/NP',
+      '/XF',
+      '_update.bat',
+      '_update.ps1',
+      '_update.sh',
     ]);
-    if (r.exitCode != 0) {
-      throw Exception('Не удалось установить в $to: ${r.stderr}');
+    // Robocopy: 0–7 = успех, >=8 ошибка.
+    if (r.exitCode >= 8) {
+      // Fallback Copy-Item
+      final c = await Process.run('powershell', [
+        '-NoProfile',
+        '-ExecutionPolicy',
+        'Bypass',
+        '-Command',
+        "Copy-Item -LiteralPath '$escapedFrom\\*' -Destination '$escapedTo' -Recurse -Force",
+      ]);
+      if (c.exitCode != 0) {
+        throw Exception('Не удалось обновить файлы в $to: ${c.stderr}');
+      }
     }
   }
 
@@ -114,6 +168,7 @@ start "" "%~dp0$exeName"
     final workDir = installDir.replaceAll("'", "''");
     final lnkEsc = lnk.replaceAll("'", "''");
     final launcher = p.join(installDir, 'Запуск.cmd').replaceAll("'", "''");
+    final aumid = appUserModelId;
     await Process.run('powershell', [
       '-NoProfile',
       '-ExecutionPolicy',
@@ -132,15 +187,78 @@ start "" "%~dp0$exeName"
 Unblock-File -LiteralPath '$lnkEsc' -ErrorAction SilentlyContinue
 \$z = '$lnkEsc' + ':Zone.Identifier'
 if (Test-Path -LiteralPath \$z) { Remove-Item -LiteralPath \$z -Force }
+# AppUserModelID через PropertyStore — один ярлык = одна иконка на панели
 try {
-  \$shell = New-Object -ComObject Shell.Application
-  \$folder = \$shell.NameSpace((Split-Path -Parent '$lnkEsc'))
-  \$item = \$folder.ParseName((Split-Path -Leaf '$lnkEsc'))
-  if (\$item -ne \$null) {
-    \$item.ExtendedProperty('System.AppUserModel.ID') | Out-Null
+  \$code = @'
+using System;
+using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.ComTypes;
+public class LnkAumid {
+  [ComImport, Guid("886D8EEB-8CF2-4446-8D02-CDBA1DBDCF99"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+  interface IPropertyStore {
+    void GetCount(out uint cProps);
+    void GetAt(uint iProp, out PROPERTYKEY pkey);
+    void GetValue(ref PROPERTYKEY key, out PROPVARIANT pv);
+    void SetValue(ref PROPERTYKEY key, ref PROPVARIANT pv);
+    void Commit();
   }
+  [StructLayout(LayoutKind.Sequential, Pack = 4)]
+  struct PROPERTYKEY { public Guid fmtid; public uint pid; }
+  [StructLayout(LayoutKind.Sequential)]
+  struct PROPVARIANT {
+    public ushort vt; public ushort w1, w2, w3;
+    public IntPtr p;
+  }
+  [DllImport("shell32.dll", CharSet = CharSet.Unicode, PreserveSig = false)]
+  static extern void SHGetPropertyStoreFromParsingName(string pszPath, IntPtr pbc, uint flags, ref Guid riid, out IPropertyStore ppv);
+  public static void Set(string lnk, string aumid) {
+    var iid = new Guid("886D8EEB-8CF2-4446-8D02-CDBA1DBDCF99");
+    IPropertyStore store;
+    SHGetPropertyStoreFromParsingName(lnk, IntPtr.Zero, 2 /*GPS_READWRITE*/, ref iid, out store);
+    var key = new PROPERTYKEY { fmtid = new Guid("9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3"), pid = 5 };
+    var pv = new PROPVARIANT();
+    pv.vt = 31; // VT_LPWSTR
+    pv.p = Marshal.StringToCoTaskMemUni(aumid);
+    store.SetValue(ref key, ref pv);
+    store.Commit();
+    Marshal.FreeCoTaskMem(pv.p);
+  }
+}
+'@
+  Add-Type -TypeDefinition \$code -ErrorAction SilentlyContinue
+  [LnkAumid]::Set('$lnkEsc', '$aumid')
 } catch {}
 ''',
     ]);
+  }
+
+  /// Убирает старые ярлыки на Downloads из закрепов/рабочего стола по возможности.
+  static Future<void> _removeStaleDownloadsPins() async {
+    final desktop = p.join(Platform.environment['USERPROFILE'] ?? '', 'Desktop');
+    for (final name in ['Grey vless.lnk', 'grey_vless.lnk', 'Grey-vless.lnk']) {
+      for (final dir in [
+        desktop,
+        p.join(Platform.environment['APPDATA'] ?? '', 'Microsoft', 'Internet Explorer', 'Quick Launch', 'User Pinned', 'TaskBar'),
+      ]) {
+        final f = File(p.join(dir, name));
+        if (await f.exists()) {
+          try {
+            // Не удаляем taskbar pin слепо — только если target в Downloads.
+            final r = await Process.run('powershell', [
+              '-NoProfile',
+              '-Command',
+              '''
+\$s = (New-Object -ComObject WScript.Shell).CreateShortcut('${f.path.replaceAll("'", "''")}')
+\$t = [string]\$s.TargetPath
+if (\$t -match 'Downloads|\\\\Temp\\\\') { Remove-Item -LiteralPath '${f.path.replaceAll("'", "''")}' -Force }
+''',
+            ]);
+            // ignore result
+            // ignore: unnecessary_statements
+            r;
+          } catch (_) {}
+        }
+      }
+    }
   }
 }

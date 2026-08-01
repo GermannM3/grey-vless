@@ -1,4 +1,4 @@
-# Упаковка Windows: portable zip + автоустановка в LocalAppData (без MotW).
+# Упаковка Windows: portable zip + установщик в LocalAppData (без конфликта копий).
 $ErrorActionPreference = "Stop"
 $Release = "grey_vless/build/windows/x64/runner/Release"
 $OutDir = "dist/windows-pack"
@@ -19,19 +19,16 @@ Get-ChildItem -Path $OutDir -Recurse -File | ForEach-Object {
 @'
 Grey vless — Windows
 
-ВАЖНО: не запускайте grey_vless.exe из Downloads после перезагрузки —
-Windows часто блокирует такие файлы.
+Единственный путь установки:
+  %LOCALAPPDATA%\Programs\Grey-vless
 
-1. Запустите Установить.cmd (один раз).
-2. Дальше открывайте «Grey vless» из меню Пуск или «Запуск.cmd»
-   в %LOCALAPPDATA%\Programs\Grey-vless.
+1. Запустите Установить.cmd (закроет старую копию и обновит поверх).
+2. Дальше — меню Пуск → Grey vless.
 
-Приложение само перенесёт себя туда при первом запуске из Downloads.
+Не держите рабочую копию в Downloads: после reboot Windows её блокирует,
+а две копии конфликтуют при обновлении.
 
-Режимы: полный VPN (TUN, нужен UAC) или системный прокси.
-Per-app туннель (только выбранные приложения) — в Android-версии.
-
-Автообновление тянет сборки с GitHub Releases.
+Автообновление из приложения тоже пишет только в LocalAppData.
 '@ | Set-Content -Path "$OutDir/ЧИТАЙ_МЕНЯ.txt" -Encoding UTF8
 
 @'
@@ -58,17 +55,37 @@ $StartMenu = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs"
 $ShortcutPath = Join-Path $StartMenu "Grey vless.lnk"
 $Launcher = Join-Path $Target "Запуск.cmd"
 
-Write-Host "Установка Grey vless в:"
+Write-Host "Обновление Grey vless в:"
 Write-Host "  $Target"
 
+# Снимаем lock: иначе dll/exe не перезаписываются и «конфликтует со старой сборкой».
+taskkill /F /IM grey_vless.exe /T 2>$null | Out-Null
+taskkill /F /IM sing-box.exe /T 2>$null | Out-Null
+Start-Sleep -Seconds 1
+
 New-Item -ItemType Directory -Force -Path $Target | Out-Null
-Copy-Item -Path (Join-Path $Root "*") -Destination $Target -Recurse -Force
+$rc = Start-Process -FilePath "robocopy" -ArgumentList @(
+  $Root, $Target, "/E", "/IS", "/IT", "/R:3", "/W:1",
+  "/NFL", "/NDL", "/NJH", "/NJS", "/NP",
+  "/XF", "Установить.cmd", "install.ps1", "ЧИТАЙ_МЕНЯ.txt"
+) -Wait -PassThru
+if ($rc.ExitCode -ge 8) {
+  Copy-Item -Path (Join-Path $Root "*") -Destination $Target -Recurse -Force
+}
 
 Get-ChildItem -Path $Target -Recurse -File | ForEach-Object {
   Unblock-File -Path $_.FullName -ErrorAction SilentlyContinue
   $zone = $_.FullName + ":Zone.Identifier"
   if (Test-Path $zone) { Remove-Item $zone -Force -ErrorAction SilentlyContinue }
 }
+
+@"
+@echo off
+chcp 65001 >nul
+cd /d "%~dp0"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-ChildItem -LiteralPath '%~dp0' -Recurse -File | Unblock-File -ErrorAction SilentlyContinue"
+start "" "%~dp0$ExeName"
+"@ | Set-Content -Path $Launcher -Encoding ASCII
 
 $Wsh = New-Object -ComObject WScript.Shell
 $Sc = $Wsh.CreateShortcut($ShortcutPath)
@@ -80,20 +97,13 @@ $Sc.Save()
 [System.Runtime.Interopservices.Marshal]::ReleaseComObject($Wsh) | Out-Null
 
 Unblock-File -Path $ShortcutPath -ErrorAction SilentlyContinue
-$lnkZone = $ShortcutPath + ":Zone.Identifier"
-if (Test-Path $lnkZone) { Remove-Item $lnkZone -Force -ErrorAction SilentlyContinue }
-
-# Run key — после логина в Windows приложение доступно из установленного пути
-$runKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
-# Не автостартуем VPN, только фиксируем путь ярлыка не нужен в Run.
-# (автоподключение — внутри приложения)
 
 Write-Host ""
-Write-Host "Готово. Меню Пуск → Grey vless (Запуск.cmd снимает блокировку)."
+Write-Host "Готово. Запускайте из меню Пуск → Grey vless"
 Write-Host ""
 $launch = Read-Host "Запустить сейчас? (Y/n)"
 if ($launch -eq "" -or $launch -match "^[YyДд]") {
-  Start-Process -FilePath $Launcher
+  Start-Process -FilePath (Join-Path $Target $ExeName) -WorkingDirectory $Target
 }
 '@ | Set-Content -Path "$OutDir/install.ps1" -Encoding UTF8
 
