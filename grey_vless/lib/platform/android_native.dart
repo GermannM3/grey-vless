@@ -1,16 +1,32 @@
+import 'dart:async';
+
 import 'package:flutter/services.dart';
 
 class AndroidNative {
   static const _channel = MethodChannel('com.grey.vless/android');
 
+  static Future<T?> _invoke<T>(
+    String method, [
+    dynamic args,
+    Duration timeout = const Duration(seconds: 12),
+  ]) {
+    return _channel.invokeMethod<T>(method, args).timeout(
+      timeout,
+      onTimeout: () => throw TimeoutException('Android $method timeout'),
+    );
+  }
+
   static Future<bool> isHevAvailable() async {
-    final ok = await _channel.invokeMethod<bool>('isHevAvailable');
-    return ok ?? false;
+    try {
+      return await _invoke<bool>('isHevAvailable') ?? false;
+    } catch (_) {
+      return false;
+    }
   }
 
   /// Копирует sing-box в codeCacheDir и делает исполняемым (Xiaomi/Samsung).
   static Future<String> prepareSingboxBinary(String sourcePath) async {
-    final path = await _channel.invokeMethod<String>('prepareSingboxBinary', {'path': sourcePath});
+    final path = await _invoke<String>('prepareSingboxBinary', {'path': sourcePath});
     if (path == null || path.isEmpty) {
       throw Exception('Не удалось подготовить sing-box');
     }
@@ -18,7 +34,7 @@ class AndroidNative {
   }
 
   static Future<String> prepareSingboxConfig(String sourcePath) async {
-    final path = await _channel.invokeMethod<String>('prepareSingboxConfig', {'path': sourcePath});
+    final path = await _invoke<String>('prepareSingboxConfig', {'path': sourcePath});
     if (path == null || path.isEmpty) {
       throw Exception('Не удалось подготовить конфиг sing-box');
     }
@@ -26,11 +42,15 @@ class AndroidNative {
   }
 
   static Future<String> singboxLastLog() async {
-    return await _channel.invokeMethod<String>('singboxLastLog') ?? '';
+    try {
+      return await _invoke<String>('singboxLastLog', null, const Duration(seconds: 3)) ?? '';
+    } catch (_) {
+      return '';
+    }
   }
 
   static Future<bool> chmodExecutable(String path) async {
-    final ok = await _channel.invokeMethod<bool>('chmodExecutable', {'path': path});
+    final ok = await _invoke<bool>('chmodExecutable', {'path': path});
     return ok ?? false;
   }
 
@@ -38,10 +58,14 @@ class AndroidNative {
     required String binaryPath,
     required String configPath,
   }) async {
-    final map = await _channel.invokeMethod<Map>('singboxCheck', {
-      'binaryPath': binaryPath,
-      'configPath': configPath,
-    });
+    final map = await _invoke<Map>(
+      'singboxCheck',
+      {
+        'binaryPath': binaryPath,
+        'configPath': configPath,
+      },
+      const Duration(seconds: 15),
+    );
     if (map == null) {
       throw Exception('singbox check failed');
     }
@@ -55,51 +79,74 @@ class AndroidNative {
     required String binaryPath,
     required String configPath,
   }) async {
-    await _channel.invokeMethod<void>('singboxStart', {
+    await _invoke<void>('singboxStart', {
       'binaryPath': binaryPath,
       'configPath': configPath,
     });
   }
 
   static Future<void> singboxStop() async {
-    await _channel.invokeMethod<void>('singboxStop');
+    try {
+      await _invoke<void>('singboxStop', null, const Duration(seconds: 5));
+    } catch (_) {}
   }
 
   static Future<bool> singboxIsRunning() async {
-    final ok = await _channel.invokeMethod<bool>('singboxIsRunning');
-    return ok ?? false;
+    try {
+      return await _invoke<bool>('singboxIsRunning', null, const Duration(seconds: 2)) ?? false;
+    } catch (_) {
+      return false;
+    }
   }
 
   static Future<bool> isVpnActive() async {
-    final ok = await _channel.invokeMethod<bool>('isVpnActive');
-    return ok ?? false;
+    try {
+      return await _invoke<bool>('isVpnActive', null, const Duration(seconds: 2)) ?? false;
+    } catch (_) {
+      return false;
+    }
   }
 
   /// Чужой VPN активен (WireGuard, OpenVPN и т.д.) — Grey vless не запущен.
   static Future<bool> isOtherVpnActive() async {
-    final ok = await _channel.invokeMethod<bool>('isOtherVpnActive');
-    return ok ?? false;
+    try {
+      return await _invoke<bool>('isOtherVpnActive', null, const Duration(seconds: 2)) ?? false;
+    } catch (_) {
+      return false;
+    }
   }
 
+  /// Может ждать системный диалог разрешения VPN.
   static Future<bool> prepareVpn() async {
-    final ok = await _channel.invokeMethod<bool>('prepareVpn');
+    final ok = await _invoke<bool>('prepareVpn', null, const Duration(seconds: 120));
     return ok ?? false;
   }
 
   static Future<List<Map<String, dynamic>>> listInstalledApps() async {
-    final raw = await _channel.invokeMethod<List>('listInstalledApps');
+    final raw = await _invoke<List>('listInstalledApps', null, const Duration(seconds: 30));
     if (raw == null) return [];
     return raw.map((e) => Map<String, dynamic>.from(e as Map)).toList();
   }
 
   static Future<bool> isIgnoringBatteryOptimizations() async {
-    final ok = await _channel.invokeMethod<bool>('isIgnoringBatteryOptimizations');
-    return ok ?? true;
+    try {
+      return await _invoke<bool>('isIgnoringBatteryOptimizations') ?? true;
+    } catch (_) {
+      return true;
+    }
   }
 
   static Future<bool> requestIgnoreBatteryOptimizations() async {
-    final ok = await _channel.invokeMethod<bool>('requestIgnoreBatteryOptimizations');
-    return ok ?? false;
+    try {
+      return await _invoke<bool>(
+            'requestIgnoreBatteryOptimizations',
+            null,
+            const Duration(seconds: 60),
+          ) ??
+          false;
+    } catch (_) {
+      return false;
+    }
   }
 
   static Future<void> startVpn({
@@ -110,7 +157,7 @@ class AndroidNative {
     List<String> disallowedApps = const [],
   }) async {
     try {
-      await _channel.invokeMethod<void>('startVpn', {
+      await _invoke<void>('startVpn', {
         'configPath': configPath,
         'binaryPath': binaryPath,
         'proxyPort': proxyPort,
@@ -128,10 +175,12 @@ class AndroidNative {
   }
 
   static Future<void> stopVpn() async {
-    await _channel.invokeMethod<void>('stopVpn');
+    try {
+      await _invoke<void>('stopVpn', null, const Duration(seconds: 5));
+    } catch (_) {}
   }
 
   static Future<void> installApk(String path) async {
-    await _channel.invokeMethod<void>('installApk', {'path': path});
+    await _invoke<void>('installApk', {'path': path}, const Duration(seconds: 30));
   }
 }

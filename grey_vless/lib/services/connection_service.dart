@@ -31,6 +31,8 @@ class ConnectionService {
   Stream<ConnectionEvent> get events => _events.stream;
 
   /// Сериализация connect/disconnect — защита от double-start.
+  /// Важно: внутри _connectBody/_disconnectBody НЕ вызывать connect()/disconnect() —
+  /// иначе deadlock (ждём сами себя).
   Future<void> _chain = Future.value();
   int _opGen = 0;
 
@@ -42,13 +44,16 @@ class ConnectionService {
 
   Future<T> _serialized<T>(Future<T> Function() fn) {
     final completer = Completer<T>();
-    _chain = _chain.then((_) async {
+    _chain = _chain.catchError((_) {}).then((_) async {
       try {
-        completer.complete(await fn());
+        final result = await fn();
+        if (!completer.isCompleted) completer.complete(result);
       } catch (e, st) {
-        completer.completeError(e, st);
+        if (!completer.isCompleted) completer.completeError(e, st);
       }
     });
+    // Не даём упавшему/зависшему звену убить всю очередь навсегда.
+    _chain = _chain.catchError((_) {});
     return completer.future;
   }
 
@@ -58,8 +63,8 @@ class ConnectionService {
 
   Future<void> _connectBody(VpnServer server, {bool fromWatchdog = false}) async {
     final gen = ++_opGen;
-    // При ручном connect останавливаем watchdog; при auto — оставляем.
-    await disconnect(stopWatchdog: !fromWatchdog);
+    // Только _disconnectBody — НЕ disconnect() (тот же mutex → вечный hang).
+    await _disconnectBody(stopWatchdog: !fromWatchdog);
     if (gen != _opGen) return;
 
     final resolved = _prepareServer(server);
@@ -79,12 +84,19 @@ class ConnectionService {
         tunnelMode: tunnelMode,
         tunnelAppIds: tunnelAppIds,
       );
-      await _runner.start(
-        config,
-        tunMode: useTun,
-        tunnelMode: tunnelMode,
-        tunnelAppIds: tunnelAppIds,
-      );
+      await _runner
+          .start(
+            config,
+            tunMode: useTun,
+            tunnelMode: tunnelMode,
+            tunnelAppIds: tunnelAppIds,
+          )
+          .timeout(
+            const Duration(seconds: 25),
+            onTimeout: () => throw TimeoutException(
+              'Ядро не ответило за 25с. Попробуйте «Системный прокси» или другой сервер.',
+            ),
+          );
       if (gen != _opGen) {
         await _runner.stop();
         return;
@@ -157,9 +169,15 @@ class ConnectionService {
   Future<void> _disconnectBody({bool stopWatchdog = true}) async {
     _opGen++;
     if (stopWatchdog) _watchdog.stop();
-    await _runner.stop();
+    try {
+      await _runner.stop().timeout(const Duration(seconds: 8));
+    } catch (_) {
+      // Не блокируем connect из‑за тормозного stop.
+    }
     if (!tunMode && !Platform.isAndroid && !Platform.isIOS) {
-      await _proxy.disable();
+      try {
+        await _proxy.disable().timeout(const Duration(seconds: 3));
+      } catch (_) {}
     }
     connectedServer = null;
     if (stopWatchdog) {

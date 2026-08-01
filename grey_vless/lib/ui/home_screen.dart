@@ -144,9 +144,9 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() => _busy = true);
     try {
       await action().timeout(
-        const Duration(seconds: 45),
+        const Duration(seconds: 35),
         onTimeout: () => throw TimeoutException(
-          'Подключение зависло (таймаут 45с). Попробуйте ещё раз или смените режим туннеля на «Системный прокси».',
+          'Подключение зависло. Нажмите ещё раз — если снова, выберите «Системный прокси».',
         ),
       );
     } on NeedsElevationException {
