@@ -9,6 +9,10 @@ import 'singbox_config.dart';
 typedef ReconnectCallback = Future<void> Function(VpnServer server);
 
 /// Следит за живостью туннеля и переподключается с backoff.
+///
+/// Важно: клиент часто идёт direct (Android disallowed / Windows process_name),
+/// поэтому HTTP-пробы ОБЯЗАНЫ идти через 127.0.0.1:7890 — иначе ложные reconnect
+/// убивают живой VPN, когда «голый» интернет мигает или режет generate_204.
 class ConnectionWatchdog {
   ConnectionWatchdog(this._runner, this._reconnect);
 
@@ -20,12 +24,13 @@ class ConnectionWatchdog {
   bool _reconnecting = false;
   bool _tickRunning = false;
   int _failStreak = 0;
-  int _internetFailStreak = 0;
   int _reconnectAttempts = 0;
   DateTime? _nextAllowedReconnect;
 
-  static const _baseInterval = Duration(seconds: 45);
+  static const _baseInterval = Duration(seconds: 60);
   static const _maxBackoff = Duration(minutes: 5);
+  /// Сколько подряд провалов туннеля нужно, чтобы дернуть reconnect.
+  static const _failsBeforeReconnect = 4;
 
   bool get isActive => _timer != null;
   bool get isReconnecting => _reconnecting;
@@ -34,10 +39,10 @@ class ConnectionWatchdog {
   void start(VpnServer server) {
     _server = server;
     _failStreak = 0;
-    _internetFailStreak = 0;
     _reconnectAttempts = 0;
     _nextAllowedReconnect = null;
     _timer?.cancel();
+    // Первый тик не сразу — дать туннелю прогреться.
     _timer = Timer.periodic(_baseInterval, (_) => _tick());
   }
 
@@ -46,7 +51,6 @@ class ConnectionWatchdog {
     _timer = null;
     _server = null;
     _failStreak = 0;
-    _internetFailStreak = 0;
     _reconnectAttempts = 0;
     _nextAllowedReconnect = null;
     _reconnecting = false;
@@ -60,13 +64,12 @@ class ConnectionWatchdog {
       final ok = await _healthOk();
       if (ok) {
         _failStreak = 0;
-        _internetFailStreak = 0;
         _reconnectAttempts = 0;
         _nextAllowedReconnect = null;
         return;
       }
       _failStreak++;
-      if (_failStreak < 3) return;
+      if (_failStreak < _failsBeforeReconnect) return;
 
       final now = DateTime.now();
       if (_nextAllowedReconnect != null && now.isBefore(_nextAllowedReconnect!)) {
@@ -78,14 +81,12 @@ class ConnectionWatchdog {
         final server = _server!;
         await _reconnect(server);
         _failStreak = 0;
-        _internetFailStreak = 0;
         _reconnectAttempts = 0;
         _nextAllowedReconnect = null;
       } catch (_) {
         _reconnectAttempts++;
-        final secs = (30 * (1 << _reconnectAttempts.clamp(0, 4))).clamp(30, _maxBackoff.inSeconds);
+        final secs = (45 * (1 << _reconnectAttempts.clamp(0, 4))).clamp(45, _maxBackoff.inSeconds);
         _nextAllowedReconnect = DateTime.now().add(Duration(seconds: secs));
-        // не сбрасываем failStreak — следующий tick после backoff
       } finally {
         _reconnecting = false;
       }
@@ -97,23 +98,19 @@ class ConnectionWatchdog {
   Future<bool> _healthOk() async {
     if (!_runner.isRunning) return false;
 
+    // 1) Локальный mixed — ядро живо.
     if (!await _localPortOpen()) return false;
 
+    // 2) Android: раз VpnService/прокси живы — не рвём сессию из‑за «голого» интернета.
+    //    (приложение в disallowed → старые probe шли мимо VPN и ложно роняли туннель.)
     if (Platform.isAndroid) {
-      final proxyAlive = await AndroidNative.singboxIsRunning();
       final vpnAlive = await AndroidNative.isVpnActive();
-      // Нативные флаги авторитетнее Dart-кэша.
-      if (!proxyAlive && !vpnAlive) return false;
+      final proxyAlive = await AndroidNative.singboxIsRunning();
+      return vpnAlive || proxyAlive;
     }
 
-    final netOk = await _internetProbe();
-    if (!netOk) {
-      _internetFailStreak++;
-      // Мягкий fail: сеть может мигать — не рвём на первом же 204.
-      return _internetFailStreak < 2;
-    }
-    _internetFailStreak = 0;
-    return true;
+    // 3) Desktop: выход именно через local proxy (не direct ISP).
+    return _tunnelProbe();
   }
 
   Future<bool> _localPortOpen() async {
@@ -134,20 +131,26 @@ class ConnectionWatchdog {
     }
   }
 
-  Future<bool> _internetProbe() async {
+  /// HTTP через 127.0.0.1:7890 — реальный путь трафика VPN/прокси.
+  Future<bool> _tunnelProbe() async {
     const urls = [
+      'https://www.gstatic.com/generate_204',
       'https://connectivitycheck.gstatic.com/generate_204',
-      'https://www.cloudflare.com/cdn-cgi/trace',
+      'http://cp.cloudflare.com/',
     ];
     for (final url in urls) {
       final client = HttpClient();
-      client.connectionTimeout = const Duration(seconds: 6);
+      client.connectionTimeout = const Duration(seconds: 8);
+      client.findProxy = (_) => 'PROXY 127.0.0.1:${SingboxConfigBuilder.localPort}';
+      client.badCertificateCallback = (_, __, ___) => true;
       try {
-        final req = await client.getUrl(Uri.parse(url));
-        final resp = await req.close().timeout(const Duration(seconds: 8));
+        final req = await client.getUrl(Uri.parse(url)).timeout(const Duration(seconds: 8));
+        req.followRedirects = false;
+        final resp = await req.close().timeout(const Duration(seconds: 10));
         final code = resp.statusCode;
-        await resp.drain();
-        if (code >= 200 && code < 400) return true;
+        await resp.drain<void>().timeout(const Duration(seconds: 3), onTimeout: () {});
+        // 204/200/30x — туннель отвечает.
+        if (code >= 200 && code < 500) return true;
       } catch (_) {
         continue;
       } finally {

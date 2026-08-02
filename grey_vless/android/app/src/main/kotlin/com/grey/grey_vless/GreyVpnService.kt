@@ -192,18 +192,19 @@ class GreyVpnService : VpnService() {
         val pm = getSystemService(POWER_SERVICE) as PowerManager
         wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "GreyVless:Vpn").apply {
             setReferenceCounted(false)
-            acquire(60 * 60 * 1000L) // 1 час, ниже renew каждые 30 мин
+            // До 10 часов с renew каждые 15 мин — иначе OEM убивает туннель «через время».
+            acquire(10 * 60 * 60 * 1000L)
         }
         wakeRenew?.cancel(false)
         wakeRenew = scheduler.scheduleAtFixedRate({
             try {
                 if (isActive()) {
-                    wakeLock?.acquire(60 * 60 * 1000L)
+                    wakeLock?.acquire(10 * 60 * 60 * 1000L)
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "wake renew failed", e)
             }
-        }, 30, 30, TimeUnit.MINUTES)
+        }, 15, 15, TimeUnit.MINUTES)
     }
 
     private fun releaseWakeLock() {
