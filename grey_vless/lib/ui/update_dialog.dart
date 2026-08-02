@@ -30,8 +30,9 @@ Future<void> showUpdateDialog(BuildContext context, UpdateInfo info) async {
                   ),
                 ] else
                   const Text(
-                    'Приложение скачает сборку для вашей платформы с GitHub Releases. '
-                    'Android — установщик APK; Windows/Linux — перезапуск; macOS — откроется .dmg; AppImage — новый файл рядом с текущим.',
+                    'Скачает сборку с GitHub. Windows: окно закроется на ~5с, затем откроется само '
+                    '(файлы в %LOCALAPPDATA%\\Programs\\Grey-vless). '
+                    'Если снова предложит обновление — поставьте zip через Установить.cmd вручную.',
                   ),
               ],
             ),

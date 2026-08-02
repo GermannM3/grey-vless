@@ -53,6 +53,43 @@ class _AppPickerScreenState extends State<AppPickerScreen> {
     }
   }
 
+  Future<void> _addByPackage() async {
+    final controller = TextEditingController(text: 'com.google.android.youtube');
+    final pkg = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Package name'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(
+            hintText: 'com.google.android.youtube',
+            helperText: 'YouTube, Chrome и т.п. можно добавить так',
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Отмена')),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+            child: const Text('Добавить'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (pkg == null || pkg.isEmpty || !mounted) return;
+    setState(() {
+      _selected.add(pkg);
+      final apps = _apps ?? <InstalledApp>[];
+      if (!apps.any((a) => a.id == pkg)) {
+        _apps = [
+          ...apps,
+          InstalledApp(id: pkg, name: pkg, isSystem: false),
+        ]..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+      }
+    });
+  }
+
   List<InstalledApp> get _filtered {
     final apps = _apps ?? const <InstalledApp>[];
     final q = _query.text.trim().toLowerCase();
@@ -94,8 +131,23 @@ class _AppPickerScreenState extends State<AppPickerScreen> {
           ),
           SwitchListTile(
             title: const Text('Скрыть системные'),
+            subtitle: const Text(
+              'YouTube часто системный — выключите, если не находите',
+              style: TextStyle(fontSize: 12),
+            ),
             value: _hideSystem,
             onChanged: (v) => setState(() => _hideSystem = v),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: _addByPackage,
+                icon: const Icon(Icons.add, size: 18),
+                label: const Text('Добавить по package name'),
+              ),
+            ),
           ),
           if (_error != null)
             Padding(
@@ -105,7 +157,20 @@ class _AppPickerScreenState extends State<AppPickerScreen> {
           else if (_apps == null)
             const Expanded(child: Center(child: CircularProgressIndicator()))
           else if (filtered.isEmpty)
-            const Expanded(child: Center(child: Text('Ничего не найдено')))
+            Expanded(
+              child: Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Text(
+                    _hideSystem
+                        ? 'Ничего не найдено. Выключите «Скрыть системные» или добавьте package вручную (для YouTube: com.google.android.youtube).'
+                        : 'Ничего не найдено. Добавьте package вручную.',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: AppTheme.textMuted),
+                  ),
+                ),
+              ),
+            )
           else
             Expanded(
               child: ListView.builder(

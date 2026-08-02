@@ -60,6 +60,11 @@
         </provider>
     </application>
     <queries>
+        <package android:name="com.google.android.youtube" />
+        <package android:name="com.google.android.apps.youtube.music" />
+        <package android:name="com.google.android.apps.youtube.creator" />
+        <package android:name="com.android.chrome" />
+        <package android:name="org.telegram.messenger" />
         <intent>
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />

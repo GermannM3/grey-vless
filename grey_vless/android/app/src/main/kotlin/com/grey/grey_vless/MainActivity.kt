@@ -231,26 +231,63 @@ class MainActivity : FlutterActivity() {
         } else {
             0
         }
+        // YouTube и т.п. — системные, но обновлённые из Play: для UI не прячем.
+        val alwaysShow = setOf(
+            "com.google.android.youtube",
+            "com.google.android.apps.youtube.music",
+            "com.google.android.apps.youtube.creator",
+            "com.google.android.apps.youtube.unplugged",
+            "com.android.chrome",
+            "com.google.android.gm",
+            "com.instagram.android",
+            "com.whatsapp",
+            "org.telegram.messenger",
+            "com.twitter.android",
+            "com.zhiliaoapp.musically",
+            "com.ss.android.ugc.aweme",
+        )
         val apps = pm.getInstalledApplications(flag)
         val out = ArrayList<Map<String, Any?>>(apps.size)
+        val seen = HashSet<String>()
         for (info in apps) {
             if (info.packageName == packageName) continue
+            if (!seen.add(info.packageName)) continue
             val label = try {
                 pm.getApplicationLabel(info).toString()
             } catch (_: Exception) {
                 info.packageName
             }
-            val system = (info.flags and ApplicationInfo.FLAG_SYSTEM) != 0
-            // Показываем launchable и крупные system apps с иконкой/лейблом
+            val isSystemFlag = (info.flags and ApplicationInfo.FLAG_SYSTEM) != 0
+            val updatedSystem = (info.flags and ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0
+            // Обновлённые «системные» (YouTube с Play) и whitelist — как пользовательские.
+            val hideAsSystem = isSystemFlag && !updatedSystem && info.packageName !in alwaysShow
             val launch = pm.getLaunchIntentForPackage(info.packageName)
-            if (launch == null && system) continue
+            if (launch == null && hideAsSystem) continue
+            // Без лаунчера, но в whitelist (на части OEM YouTube странный) — всё равно показать.
+            if (launch == null && info.packageName !in alwaysShow && !updatedSystem) continue
             out.add(
                 mapOf(
                     "package" to info.packageName,
                     "label" to label,
-                    "system" to system,
+                    "system" to hideAsSystem,
                 ),
             )
+        }
+        // Если YouTube установлен, но OEM скрыл из getInstalledApplications — докинем явно.
+        for (pkg in alwaysShow) {
+            if (pkg in seen) continue
+            try {
+                val info = pm.getApplicationInfo(pkg, 0)
+                val label = try {
+                    pm.getApplicationLabel(info).toString()
+                } catch (_: Exception) {
+                    pkg
+                }
+                out.add(mapOf("package" to pkg, "label" to label, "system" to false))
+                seen.add(pkg)
+            } catch (_: Exception) {
+                // не установлено
+            }
         }
         out.sortBy { (it["label"] as? String)?.lowercase() ?: "" }
         return out
