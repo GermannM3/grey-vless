@@ -361,15 +361,15 @@ echo done>> "%LOG%"
 endlocal
 ''');
 
-    // Отдельное окно cmd — не child Flutter, переживает exit(0).
-    final launched = await Process.start(
+    // ВАЖНО: у `start` первый quoted-аргумент = TITLE окна.
+    // `start GreyVlessUpdate /min bat` искало программу GreyVlessUpdate → ошибка.
+    // Правильно: start "" /min "C:\...\apply.bat"
+    await Process.start(
       'cmd.exe',
-      ['/c', 'start', 'GreyVlessUpdate', '/min', bat.path],
+      ['/c', 'start', '', '/min', bat.path],
       mode: ProcessStartMode.detached,
       workingDirectory: updaterRoot.path,
     );
-    // ignore: unnecessary_statements
-    launched;
     await Future<void>.delayed(const Duration(milliseconds: 1000));
     exit(0);
   }

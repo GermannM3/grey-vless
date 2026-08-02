@@ -207,12 +207,18 @@ class _HomeScreenState extends State<HomeScreen> {
     );
     if (ok != true || !mounted) return;
     await state.setPendingConnectAfterElevate(idx);
-    _snack('Подтвердите UAC…');
-    await WindowsElevation.relaunchElevated();
+    _snack('Подтвердите UAC в окне Windows…');
+    try {
+      await WindowsElevation.relaunchElevated();
+    } on UacCancelledException catch (e) {
+      await state.setPendingConnectAfterElevate(null);
+      if (mounted) _snack(e.message, bg: Colors.orange.shade900);
+    }
   }
 
   String _shortError(Object e) {
     if (e is NeedsElevationException) return e.message;
+    if (e is UacCancelledException) return e.message;
     final s = e.toString();
     if (s.startsWith('Exception: ')) return s.substring(11);
     return s;

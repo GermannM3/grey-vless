@@ -1,4 +1,4 @@
-# Упаковка Windows: portable zip + установщик в LocalAppData (без конфликта копий).
+# Упаковка Windows: portable zip + простой install.cmd (без хрупкого PowerShell UI).
 $ErrorActionPreference = "Stop"
 $Release = "grey_vless/build/windows/x64/runner/Release"
 $OutDir = "dist/windows-pack"
@@ -19,35 +19,101 @@ Get-ChildItem -Path $OutDir -Recurse -File | ForEach-Object {
 @'
 Grey vless — Windows
 
-Единственный путь установки:
+Установка:
+  1. Запустите Установить.cmd
+  2. Откройте Grey vless из меню Пуск
+
+Файлы ставятся в:
   %LOCALAPPDATA%\Programs\Grey-vless
 
-1. Запустите Установить.cmd (закроет старую копию и обновит поверх).
-2. Дальше — меню Пуск → Grey vless.
+Не запускайте постоянно из Downloads — будут конфликты обновлений.
 
-Не держите рабочую копию в Downloads: после reboot Windows её блокирует,
-а две копии конфликтуют при обновлении.
-
-Автообновление из приложения тоже пишет только в LocalAppData.
+TUN (полный VPN) попросит UAC один раз.
+Если не хотите админа — в настройках выберите «Системный прокси».
 '@ | Set-Content -Path "$OutDir/ЧИТАЙ_МЕНЯ.txt" -Encoding UTF8
 
+# Главный установщик — чистый cmd, без Read-Host и без Stop на мелочах.
 @'
 @echo off
 chcp 65001 >nul
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0install.ps1"
-if errorlevel 1 pause
+setlocal EnableExtensions
+set "SRC=%~dp0"
+set "TARGET=%LOCALAPPDATA%\Programs\Grey-vless"
+set "EXE=grey_vless.exe"
+set "STARTMENU=%APPDATA%\Microsoft\Windows\Start Menu\Programs"
+set "LNK=%STARTMENU%\Grey vless.lnk"
+
+echo.
+echo Grey vless — установка
+echo   %TARGET%
+echo.
+
+taskkill /F /IM grey_vless.exe /T >nul 2>&1
+taskkill /F /IM sing-box.exe /T >nul 2>&1
+timeout /t 1 /nobreak >nul
+
+if not exist "%TARGET%" mkdir "%TARGET%"
+
+where robocopy >nul 2>&1
+if errorlevel 1 (
+  echo robocopy не найден, копирую через xcopy...
+  xcopy /E /Y /I /Q "%SRC%*" "%TARGET%\" >nul
+) else (
+  robocopy "%SRC%." "%TARGET%" /E /IS /IT /R:3 /W:1 /NFL /NDL /NJH /NJS /NP /XF "Установить.cmd" "install.ps1" "install.cmd" "ЧИТАЙ_МЕНЯ.txt" >nul
+  if errorlevel 8 (
+    echo robocopy с ошибкой, пробую xcopy...
+    xcopy /E /Y /I /Q "%SRC%*" "%TARGET%\" >nul
+  )
+)
+
+if not exist "%TARGET%\%EXE%" (
+  echo ОШИБКА: не найден %TARGET%\%EXE%
+  echo Запустите этот файл из распакованной папки zip.
+  pause
+  exit /b 1
+)
+
+> "%TARGET%\Запуск.cmd" (
+  echo @echo off
+  echo cd /d "%%~dp0"
+  echo start "" "%%~dp0%EXE%"
+)
+
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+  "Get-ChildItem -LiteralPath '%TARGET%' -Recurse -File -ErrorAction SilentlyContinue | Unblock-File -ErrorAction SilentlyContinue; ^
+   $W=New-Object -ComObject WScript.Shell; ^
+   $S=$W.CreateShortcut('%LNK%'); ^
+   $S.TargetPath='%TARGET%\Запуск.cmd'; ^
+   $S.WorkingDirectory='%TARGET%'; ^
+   $S.IconLocation='%TARGET%\%EXE%'; ^
+   $S.Save()" >nul 2>&1
+
+echo.
+echo Готово. Ярлык: меню Пуск → Grey vless
+echo.
+start "" "%TARGET%\%EXE%"
+endlocal
+exit /b 0
 '@ | Set-Content -Path "$OutDir/Установить.cmd" -Encoding ASCII
+
+# Дубликат на всякий случай (на скрине у пользователя был install без расширения в проводнике).
+Copy-Item -Path "$OutDir/Установить.cmd" -Destination "$OutDir/install.cmd" -Force
 
 @'
 @echo off
 chcp 65001 >nul
 cd /d "%~dp0"
-powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-ChildItem -LiteralPath '%~dp0' -Recurse -File | Unblock-File -ErrorAction SilentlyContinue"
+if not exist "%~dp0grey_vless.exe" (
+  echo grey_vless.exe не найден рядом со скриптом.
+  pause
+  exit /b 1
+)
 start "" "%~dp0grey_vless.exe"
 '@ | Set-Content -Path "$OutDir/Запуск.cmd" -Encoding ASCII
 
+# Старый ps1 оставляем совместимым, но без Stop и без обязательного Read-Host.
 @'
-$ErrorActionPreference = "Stop"
+$ErrorActionPreference = "Continue"
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Target = Join-Path $env:LOCALAPPDATA "Programs\Grey-vless"
 $ExeName = "grey_vless.exe"
@@ -55,56 +121,42 @@ $StartMenu = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs"
 $ShortcutPath = Join-Path $StartMenu "Grey vless.lnk"
 $Launcher = Join-Path $Target "Запуск.cmd"
 
-Write-Host "Обновление Grey vless в:"
-Write-Host "  $Target"
-
-# Снимаем lock: иначе dll/exe не перезаписываются и «конфликтует со старой сборкой».
+Write-Host "Установка Grey vless → $Target"
 taskkill /F /IM grey_vless.exe /T 2>$null | Out-Null
 taskkill /F /IM sing-box.exe /T 2>$null | Out-Null
 Start-Sleep -Seconds 1
-
 New-Item -ItemType Directory -Force -Path $Target | Out-Null
 $rc = Start-Process -FilePath "robocopy" -ArgumentList @(
   $Root, $Target, "/E", "/IS", "/IT", "/R:3", "/W:1",
   "/NFL", "/NDL", "/NJH", "/NJS", "/NP",
-  "/XF", "Установить.cmd", "install.ps1", "ЧИТАЙ_МЕНЯ.txt"
-) -Wait -PassThru
+  "/XF", "Установить.cmd", "install.ps1", "install.cmd", "ЧИТАЙ_МЕНЯ.txt"
+) -Wait -PassThru -WindowStyle Hidden
 if ($rc.ExitCode -ge 8) {
-  Copy-Item -Path (Join-Path $Root "*") -Destination $Target -Recurse -Force
+  Copy-Item -Path (Join-Path $Root "*") -Destination $Target -Recurse -Force -ErrorAction SilentlyContinue
 }
-
-Get-ChildItem -Path $Target -Recurse -File | ForEach-Object {
+Get-ChildItem -Path $Target -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object {
   Unblock-File -Path $_.FullName -ErrorAction SilentlyContinue
-  $zone = $_.FullName + ":Zone.Identifier"
-  if (Test-Path $zone) { Remove-Item $zone -Force -ErrorAction SilentlyContinue }
 }
-
 @"
 @echo off
-chcp 65001 >nul
 cd /d "%~dp0"
-powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-ChildItem -LiteralPath '%~dp0' -Recurse -File | Unblock-File -ErrorAction SilentlyContinue"
 start "" "%~dp0$ExeName"
 "@ | Set-Content -Path $Launcher -Encoding ASCII
-
-$Wsh = New-Object -ComObject WScript.Shell
-$Sc = $Wsh.CreateShortcut($ShortcutPath)
-$Sc.TargetPath = $Launcher
-$Sc.WorkingDirectory = $Target
-$Sc.Description = "Grey vless"
-$Sc.IconLocation = (Join-Path $Target $ExeName)
-$Sc.Save()
-[System.Runtime.Interopservices.Marshal]::ReleaseComObject($Wsh) | Out-Null
-
-Unblock-File -Path $ShortcutPath -ErrorAction SilentlyContinue
-
-Write-Host ""
-Write-Host "Готово. Запускайте из меню Пуск → Grey vless"
-Write-Host ""
-$launch = Read-Host "Запустить сейчас? (Y/n)"
-if ($launch -eq "" -or $launch -match "^[YyДд]") {
-  Start-Process -FilePath (Join-Path $Target $ExeName) -WorkingDirectory $Target
+try {
+  $Wsh = New-Object -ComObject WScript.Shell
+  $Sc = $Wsh.CreateShortcut($ShortcutPath)
+  $Sc.TargetPath = $Launcher
+  $Sc.WorkingDirectory = $Target
+  $Sc.IconLocation = (Join-Path $Target $ExeName)
+  $Sc.Save()
+} catch {}
+$exe = Join-Path $Target $ExeName
+if (-not (Test-Path $exe)) {
+  Write-Host "ОШИБКА: $exe не найден"
+  exit 1
 }
+Write-Host "Готово."
+Start-Process -FilePath $exe -WorkingDirectory $Target
 '@ | Set-Content -Path "$OutDir/install.ps1" -Encoding UTF8
 
 Remove-Item -Force $Zip -ErrorAction SilentlyContinue

@@ -150,9 +150,7 @@ Get-ChildItem -LiteralPath '$escaped' -Recurse -File | ForEach-Object {
     final cmd = File(p.join(installDir, 'Запуск.cmd'));
     await cmd.writeAsString('''
 @echo off
-chcp 65001 >nul
 cd /d "%~dp0"
-powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-ChildItem -LiteralPath '%~dp0' -Recurse -File | Unblock-File -ErrorAction SilentlyContinue"
 start "" "%~dp0$exeName"
 ''');
   }
