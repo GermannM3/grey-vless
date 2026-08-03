@@ -6,6 +6,7 @@ import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'platform/windows_install.dart';
+import 'services/app_log.dart';
 import 'services/auto_update_watcher.dart';
 import 'services/connection_service.dart';
 import 'services/grey_sense_service.dart';
@@ -16,14 +17,17 @@ import 'ui/home_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  AppLog.instance.info('boot', 'Grey vless starting…');
 
   if (Platform.isWindows) {
     try {
       final shouldExit = await WindowsInstall.ensureInstalledAndRelaunch();
       if (shouldExit) {
+        AppLog.instance.info('boot', 'migrated to LocalAppData, relaunching');
         exit(0);
       }
     } catch (e) {
+      AppLog.instance.exception('boot', e);
       debugPrint('Windows install migrate failed: $e');
     }
   }

@@ -4,6 +4,7 @@ import 'dart:io';
 import '../models/server.dart';
 import '../platform/android_native.dart';
 import '../platform/singbox_runner.dart';
+import 'app_log.dart';
 import 'singbox_config.dart';
 
 typedef ReconnectCallback = Future<void> Function(VpnServer server);
@@ -79,14 +80,18 @@ class ConnectionWatchdog {
       _reconnecting = true;
       try {
         final server = _server!;
+        AppLog.instance.warn('watchdog', 'reconnect → ${server.name} (fails=$_failStreak)');
         await _reconnect(server);
         _failStreak = 0;
         _reconnectAttempts = 0;
         _nextAllowedReconnect = null;
-      } catch (_) {
+        AppLog.instance.info('watchdog', 'reconnect OK');
+      } catch (e) {
+        AppLog.instance.exception('watchdog', e);
         _reconnectAttempts++;
         final secs = (45 * (1 << _reconnectAttempts.clamp(0, 4))).clamp(45, _maxBackoff.inSeconds);
         _nextAllowedReconnect = DateTime.now().add(Duration(seconds: secs));
+        AppLog.instance.warn('watchdog', 'backoff ${secs}s');
       } finally {
         _reconnecting = false;
       }

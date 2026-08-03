@@ -16,11 +16,13 @@ import '../services/update_preferences.dart';
 import '../services/update_service.dart';
 import '../platform/android_native.dart';
 import '../platform/windows_elevation.dart';
+import '../services/app_log.dart';
 import '../state/app_state.dart';
 import 'app_picker_screen.dart';
 import 'app_screen.dart';
 import 'app_theme.dart';
 import 'country_flag.dart';
+import 'terminal_screen.dart';
 import 'update_dialog.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -179,6 +181,7 @@ class _HomeScreenState extends State<HomeScreen> {
       if (e is NeedsElevationException) {
         if (mounted) await _handleElevation();
       } else if (mounted) {
+        AppLog.instance.exception('ui', e);
         _snack(_shortError(e), bg: Colors.red.shade800);
       }
     } finally {
@@ -473,6 +476,21 @@ class _HomeScreenState extends State<HomeScreen> {
                                   _showSettings();
                                 }
                               },
+                      );
+                    },
+                  ),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.terminal, color: AppTheme.accentGlow),
+                    title: const Text('Терминал / логи'),
+                    subtitle: const Text(
+                      'Живой вывод ядра и ошибок подключения',
+                      style: TextStyle(fontSize: 12, color: AppTheme.textMuted),
+                    ),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const TerminalScreen()),
                       );
                     },
                   ),
@@ -774,6 +792,15 @@ class _HomeScreenState extends State<HomeScreen> {
                   tooltip: 'Настройки',
                   onPressed: () => _showSettings(),
                   icon: const Icon(Icons.settings_outlined, color: AppTheme.textPrimary),
+                ),
+                IconButton(
+                  tooltip: 'Терминал',
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => const TerminalScreen()),
+                    );
+                  },
+                  icon: const Icon(Icons.terminal, color: AppTheme.textPrimary),
                 ),
                 const Spacer(),
                 IconButton(

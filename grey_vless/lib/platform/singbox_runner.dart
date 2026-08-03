@@ -8,6 +8,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import '../models/tunnel_mode.dart';
+import '../services/app_log.dart';
 import '../services/singbox_config.dart';
 import 'android_native.dart';
 import 'windows_elevation.dart';
@@ -159,10 +160,15 @@ class SingboxRunner {
     // Elevation: не блокируем UI на UAC — бросаем NeedsElevationException для диалога.
     if (Platform.isWindows && tunMode) {
       if (!await WindowsElevation.isElevated()) {
+        AppLog.instance.warn('runner', 'TUN нужен UAC — elevation required');
         throw NeedsElevationException();
       }
     }
 
+    AppLog.instance.info(
+      'runner',
+      'start tun=$tunMode mode=${tunnelMode.id} apps=${tunnelAppIds.length}',
+    );
     await stop();
     await _freeLocalPort();
 
@@ -205,6 +211,7 @@ class SingboxRunner {
           'Конфиг sing-box невалиден: ${check.output.isEmpty ? "проверьте сервер" : check.output}',
         );
       }
+      AppLog.instance.info('runner', 'sing-box check OK (android)');
     } else {
       final check = await Process.run(binary, ['check', '-c', configPath])
           .timeout(const Duration(seconds: 8));
@@ -212,6 +219,7 @@ class SingboxRunner {
         final err = '${check.stderr}${check.stdout}'.trim();
         throw Exception('Конфиг sing-box невалиден: ${err.isEmpty ? "проверьте сервер" : err}');
       }
+      AppLog.instance.info('runner', 'sing-box check OK');
     }
 
     if (Platform.isAndroid && tunMode) {
@@ -224,12 +232,14 @@ class SingboxRunner {
         allowedApps: allowed,
         disallowedApps: disallowed,
       );
+      AppLog.instance.info('vpn', 'startVpn service requested');
       // Сервис стартует асинхронно — ждём порт до ~15 с (не socket.close — зависает на OEM).
       var sawVpn = false;
       for (var i = 0; i < 60; i++) {
         await Future.delayed(const Duration(milliseconds: 250));
         if (await _portOpen()) {
           _androidVpn = true;
+          AppLog.instance.info('vpn', 'порт ${SingboxConfigBuilder.localPort} открыт, VPN OK');
           return;
         }
         if (await AndroidNative.isVpnActive()) sawVpn = true;
@@ -238,11 +248,11 @@ class SingboxRunner {
       }
       if (!await _portOpen()) {
         await stop();
-        throw Exception(
-          sawVpn
-              ? 'VPN-интерфейс есть, но прокси 127.0.0.1:${SingboxConfigBuilder.localPort} молчит. Переустановите APK из последнего релиза.'
-              : 'VPN не поднялся. Разрешите VPN в системе и убедитесь, что другой VPN выключен.',
-        );
+        final msg = sawVpn
+            ? 'VPN-интерфейс есть, но прокси 127.0.0.1:${SingboxConfigBuilder.localPort} молчит. Переустановите APK из последнего релиза.'
+            : 'VPN не поднялся. Разрешите VPN в системе и убедитесь, что другой VPN выключен.';
+        AppLog.instance.error('vpn', msg);
+        throw Exception(msg);
       }
       _androidVpn = true;
       return;
@@ -292,14 +302,17 @@ class SingboxRunner {
       try {
         logFile.writeAsBytesSync(data, mode: FileMode.append, flush: true);
       } catch (_) {}
+      AppLog.instance.fromBytes('sing-box', data);
     }));
     _logSubs.add(proc.stdout.listen((data) {
       try {
         logFile.writeAsBytesSync(data, mode: FileMode.append, flush: true);
       } catch (_) {}
+      AppLog.instance.fromBytes('sing-box', data);
     }));
-    proc.exitCode.then((_) {
+    proc.exitCode.then((code) {
       if (_startGen == gen) _alive = false;
+      AppLog.instance.warn('sing-box', 'process exit code=$code');
     });
 
     for (var i = 0; i < 40; i++) {
@@ -314,12 +327,14 @@ class SingboxRunner {
         var msg = 'sing-box завершился';
         msg += _tunFailureHint(log, tunMode: tunMode);
         if (log.isNotEmpty) msg += ': $log';
+        AppLog.instance.error('runner', msg);
         throw Exception(msg);
       } on TimeoutException {
         // still running
       }
       if (await _portOpen()) {
         _alive = true;
+        AppLog.instance.info('runner', 'порт ${SingboxConfigBuilder.localPort} открыт');
         return;
       }
     }
@@ -334,6 +349,7 @@ class SingboxRunner {
   }
 
   Future<void> stop() async {
+    AppLog.instance.info('runner', 'stop');
     _alive = false;
     _startGen++;
     for (final s in _logSubs) {

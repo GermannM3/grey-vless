@@ -7,6 +7,7 @@ import '../platform/platform_proxy.dart';
 import '../platform/singbox_runner.dart';
 import 'connection_watchdog.dart';
 import 'grey_sense_service.dart';
+import 'app_log.dart';
 import 'parser.dart';
 import 'ping_service.dart';
 import 'singbox_config.dart';
@@ -78,6 +79,10 @@ class ConnectionService {
     try {
       final useTun = tunnelMode.usesTun || (!Platform.isAndroid && tunnelMode.needsAppList);
       tunMode = useTun;
+      AppLog.instance.info(
+        'conn',
+        'connect ${resolved.name} (${resolved.host}:${resolved.port}) mode=${tunnelMode.id} tun=$useTun',
+      );
       if (tunnelMode.needsAppList && tunnelAppIds.isEmpty) {
         throw Exception(
           tunnelMode == TunnelMode.selectedApps
@@ -119,12 +124,14 @@ class ConnectionService {
       connectedServer = resolved;
       await greySense.recordSuccess(resolved);
       _watchdog.start(resolved);
+      AppLog.instance.info('conn', 'connected OK: ${resolved.name}');
       if (fromWatchdog) {
         _events.add(ConnectionEvent.reconnected(resolved));
       } else {
         _events.add(ConnectionEvent.connected(resolved));
       }
     } catch (e) {
+      AppLog.instance.exception('conn', e);
       await greySense.recordFailure(resolved);
       if (!fromWatchdog) {
         _watchdog.stop();
