@@ -28,8 +28,9 @@ Grey vless — Windows
 
 Не запускайте постоянно из Downloads — будут конфликты обновлений.
 
-TUN (полный VPN) попросит UAC один раз.
-Если не хотите админа — в настройках выберите «Системный прокси».
+TUN (полный VPN) попросит UAC.
+Ярлык «Grey vless (Админ TUN)» в Пуске — сразу с правами.
+Без админа — «Системный прокси» в настройках.
 '@ | Set-Content -Path "$OutDir/ЧИТАЙ_МЕНЯ.txt" -Encoding UTF8
 
 # Главный установщик — чистый cmd, без Read-Host и без Stop на мелочах.
@@ -79,6 +80,17 @@ if not exist "%TARGET%\%EXE%" (
   echo start "" "%%~dp0%EXE%"
 )
 
+> "%TARGET%\Запуск_админ.cmd" (
+  echo @echo off
+  echo chcp 65001 ^>nul
+  echo cd /d "%%~dp0"
+  echo echo Grey vless — запрос UAC для TUN...
+  echo powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath '%%~dp0%EXE%' -WorkingDirectory '%%~dp0' -Verb RunAs"
+  echo if errorlevel 1 pause
+)
+
+set "LNKADMIN=%STARTMENU%\Grey vless (Админ TUN).lnk"
+
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "Get-ChildItem -LiteralPath '%TARGET%' -Recurse -File -ErrorAction SilentlyContinue | Unblock-File -ErrorAction SilentlyContinue; ^
    $W=New-Object -ComObject WScript.Shell; ^
@@ -86,10 +98,17 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
    $S.TargetPath='%TARGET%\Запуск.cmd'; ^
    $S.WorkingDirectory='%TARGET%'; ^
    $S.IconLocation='%TARGET%\%EXE%'; ^
-   $S.Save()" >nul 2>&1
+   $S.Save(); ^
+   $A=$W.CreateShortcut('%LNKADMIN%'); ^
+   $A.TargetPath='%TARGET%\Запуск_админ.cmd'; ^
+   $A.WorkingDirectory='%TARGET%'; ^
+   $A.IconLocation='%TARGET%\%EXE%'; ^
+   $A.Save()" >nul 2>&1
 
 echo.
-echo Готово. Ярлык: меню Пуск → Grey vless
+echo Готово.
+echo   Пуск → Grey vless
+echo   Пуск → Grey vless (Админ TUN)   — для полного VPN
 echo.
 start "" "%TARGET%\%EXE%"
 endlocal
@@ -110,6 +129,20 @@ if not exist "%~dp0grey_vless.exe" (
 )
 start "" "%~dp0grey_vless.exe"
 '@ | Set-Content -Path "$OutDir/Запуск.cmd" -Encoding ASCII
+
+@'
+@echo off
+chcp 65001 >nul
+cd /d "%~dp0"
+if not exist "%~dp0grey_vless.exe" (
+  echo grey_vless.exe не найден.
+  pause
+  exit /b 1
+)
+echo Запрос UAC для TUN / полного VPN...
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath '%~dp0grey_vless.exe' -WorkingDirectory '%~dp0' -Verb RunAs"
+if errorlevel 1 pause
+'@ | Set-Content -Path "$OutDir/Запуск_админ.cmd" -Encoding ASCII
 
 # Старый ps1 оставляем совместимым, но без Stop и без обязательного Read-Host.
 @'

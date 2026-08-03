@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
 
+import 'platform/windows_elevation.dart';
 import 'platform/windows_install.dart';
 import 'services/app_log.dart';
 import 'services/auto_update_watcher.dart';
@@ -26,6 +27,7 @@ Future<void> main() async {
         AppLog.instance.info('boot', 'migrated to LocalAppData, relaunching');
         exit(0);
       }
+      await WindowsElevation.ensureAdminLauncher();
     } catch (e) {
       AppLog.instance.exception('boot', e);
       debugPrint('Windows install migrate failed: $e');

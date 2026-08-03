@@ -198,9 +198,10 @@ class _HomeScreenState extends State<HomeScreen> {
       builder: (ctx) => AlertDialog(
         title: const Text('Нужны права администратора'),
         content: const Text(
-          'Режим TUN на Windows требует UAC.\n'
-          'Приложение перезапустится с правами администратора и подключится само.\n\n'
-          'Если не хотите UAC — в настройках выберите «Системный прокси».',
+          'Режим TUN на Windows требует UAC.\n\n'
+          'Сейчас откроется запрос Windows (щит на панели задач — иногда сзади окон).\n'
+          'Либо закрой это и запусти из Пуска: «Grey vless (Админ TUN)».\n\n'
+          'Без админа оставь «Системный прокси» — он уже работает.',
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Отмена')),
@@ -479,6 +480,27 @@ class _HomeScreenState extends State<HomeScreen> {
                       );
                     },
                   ),
+                  if (Platform.isWindows)
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.admin_panel_settings_outlined),
+                      title: const Text('Перезапустить от администратора'),
+                      subtitle: const Text(
+                        'Нужно для полного VPN (TUN). Смотри UAC / щит на панели задач',
+                        style: TextStyle(fontSize: 12, color: AppTheme.textMuted),
+                      ),
+                      onTap: _busy
+                          ? null
+                          : () async {
+                              Navigator.pop(ctx);
+                              _snack('Подтверди UAC (щит на панели задач)…');
+                              try {
+                                await WindowsElevation.relaunchElevated();
+                              } on UacCancelledException catch (e) {
+                                if (mounted) _snack(e.message, bg: Colors.orange.shade900);
+                              }
+                            },
+                    ),
                   ListTile(
                     contentPadding: EdgeInsets.zero,
                     leading: const Icon(Icons.terminal, color: AppTheme.accentGlow),

@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import '../services/app_log.dart';
 import 'windows_install.dart';
 
 /// Нужны права администратора для TUN — UI должен показать диалог и перезапустить.
@@ -14,7 +15,12 @@ class NeedsElevationException implements Exception {
 }
 
 class UacCancelledException implements Exception {
-  UacCancelledException([this.message = 'UAC отменён — приложение остаётся открытым. Выберите «Системный прокси» или подтвердите UAC.']);
+  UacCancelledException([
+    this.message =
+        'UAC отменён или окно не появилось. Запусти «Grey vless (Админ)» из меню Пуск '
+        'или в настройках нажми «Перезапустить от администратора». '
+        'Либо оставь «Системный прокси» — он без UAC.',
+  ]);
   final String message;
   @override
   String toString() => message;
@@ -45,59 +51,103 @@ class WindowsElevation {
     }
   }
 
-  /// Запрос UAC. Не закрывает текущее окно, пока пользователь не подтвердит.
-  /// При отмене — [UacCancelledException], приложение остаётся.
+  /// Путь к постоянному лаунчеру с UAC (ставится установщиком / при первом elevate).
+  static String get adminLauncherCmd {
+    final dir = Directory(WindowsInstall.installDir).existsSync()
+        ? WindowsInstall.installDir
+        : p.dirname(Platform.resolvedExecutable);
+    return p.join(dir, 'Запуск_админ.cmd');
+  }
+
+  /// Пишет Запуск_админ.cmd рядом с exe.
+  static Future<void> ensureAdminLauncher() async {
+    if (!Platform.isWindows) return;
+    var dir = WindowsInstall.installDir;
+    if (!await Directory(dir).exists()) {
+      dir = p.dirname(Platform.resolvedExecutable);
+    }
+    await Directory(dir).create(recursive: true);
+    final exeName = WindowsInstall.exeName;
+    final cmd = File(p.join(dir, 'Запуск_админ.cmd'));
+    await cmd.writeAsString(
+      '@echo off\r\n'
+      'chcp 65001 >nul\r\n'
+      'cd /d "%~dp0"\r\n'
+      'echo Запрос UAC для TUN...\r\n'
+      'powershell -NoProfile -ExecutionPolicy Bypass -Command '
+      '"Start-Process -FilePath \'%~dp0$exeName\' -WorkingDirectory \'%~dp0\' -Verb RunAs"\r\n'
+      'if errorlevel 1 pause\r\n',
+    );
+  }
+
+  /// Запрос UAC через видимый cmd (не Hidden powershell — иначе UAC часто «не видно»).
   static Future<void> relaunchElevated() async {
     if (!Platform.isWindows) return;
+
+    await ensureAdminLauncher();
+
     var exePath = Platform.resolvedExecutable;
     final install = WindowsInstall.installExe;
     if (await File(install).exists()) {
       exePath = install;
     }
-    final exe = exePath.replaceAll("'", "''");
-    final dir = p.dirname(exePath).replaceAll("'", "''");
+    if (!await File(exePath).exists()) {
+      AppLog.instance.error('uac', 'exe не найден: $exePath');
+      throw UacCancelledException('Не найден grey_vless.exe для запуска от админа.');
+    }
 
+    final dir = p.dirname(exePath);
     final temp = await getTemporaryDirectory();
-    final marker = File(p.join(temp.path, 'grey-vless-uac-${DateTime.now().millisecondsSinceEpoch}.txt'));
+    final stamp = DateTime.now().millisecondsSinceEpoch;
+    final marker = File(p.join(temp.path, 'grey-uac-$stamp.txt'));
+    final bat = File(p.join(temp.path, 'grey-uac-$stamp.bat'));
     if (await marker.exists()) await marker.delete();
-    final markerPath = marker.path.replaceAll("'", "''");
 
-    // PowerShell пишет ok/cancel в marker — Flutter ждёт, UI не exit'ится сразу.
-    await Process.start(
-      'powershell',
-      [
-        '-NoProfile',
-        '-ExecutionPolicy',
-        'Bypass',
-        '-WindowStyle',
-        'Hidden',
-        '-Command',
-        '''
-try {
-  Start-Process -FilePath '$exe' -WorkingDirectory '$dir' -Verb RunAs -ErrorAction Stop
-  Set-Content -LiteralPath '$markerPath' -Value 'ok' -Encoding ASCII
-} catch {
-  Set-Content -LiteralPath '$markerPath' -Value 'cancel' -Encoding ASCII
-}
-''',
-      ],
-      mode: ProcessStartMode.detached,
-      runInShell: false,
+    // Экранирование для bat: пути в кавычках.
+    await bat.writeAsString(
+      '@echo off\r\n'
+      'chcp 65001 >nul\r\n'
+      'echo Grey vless — запрос прав администратора (UAC)\r\n'
+      'echo Если окно UAC не видно — посмотри на панели задач (щит).\r\n'
+      'powershell -NoProfile -ExecutionPolicy Bypass -Command ^\r\n'
+      '  "try { Start-Process -FilePath \'${exePath.replaceAll("'", "''")}\' '
+      '-WorkingDirectory \'${dir.replaceAll("'", "''")}\' -Verb RunAs -ErrorAction Stop; '
+      'Set-Content -LiteralPath \'${marker.path.replaceAll("'", "''")}\' -Value ok -Encoding ASCII } '
+      'catch { Set-Content -LiteralPath \'${marker.path.replaceAll("'", "''")}\' -Value cancel -Encoding ASCII }"\r\n',
     );
 
-    // Ждём ответ UAC до 2 минут — окно остаётся открытым.
-    for (var i = 0; i < 120; i++) {
+    AppLog.instance.info('uac', 'запуск UAC для $exePath');
+
+    // start "" = пустой TITLE. Без этого Windows ищет exe с именем заголовка.
+    await Process.start(
+      'cmd.exe',
+      ['/c', 'start', '""', '/wait', bat.path],
+      mode: ProcessStartMode.detached,
+      workingDirectory: dir,
+    );
+
+    // Ждём marker (UAC + start). /wait на bat держит, пока powershell не закончит.
+    for (var i = 0; i < 180; i++) {
       await Future<void>.delayed(const Duration(seconds: 1));
       if (!await marker.exists()) continue;
-      final status = (await marker.readAsString()).trim();
+      final status = (await marker.readAsString()).trim().toLowerCase();
       try {
         await marker.delete();
       } catch (_) {}
+      try {
+        await bat.delete();
+      } catch (_) {}
+
       if (status == 'ok') {
+        AppLog.instance.info('uac', 'UAC OK — закрываем обычное окно');
+        // Дать elevated процессу отрисоваться.
+        await Future<void>.delayed(const Duration(milliseconds: 800));
         exit(0);
       }
+      AppLog.instance.warn('uac', 'UAC cancel/fail');
       throw UacCancelledException();
     }
-    throw UacCancelledException('UAC не ответил — попробуйте ещё раз или включите системный прокси.');
+    AppLog.instance.warn('uac', 'timeout waiting for UAC');
+    throw UacCancelledException();
   }
 }
